@@ -23,9 +23,9 @@ var LiteratureFlow = (() => {
   async function get(id) {
     const item=await Zotero.Items.getAsync(id);
     if(!item?.isRegularItem?.())return null;
-    const notes=[];
-    for(const nid of item.getNotes()) {const n=await Zotero.Items.getAsync(nid);if(n && !n.deleted)notes.push({key:n.key,id:n.id,html:n.getNote(),tags:n.getTags().map(t=>t.tag)});}
-    return {id:item.id,key:item.key,scope:scope(item.libraryID),libraryID:item.libraryID,title:item.getField('title'),extra:item.getField('extra'),tags:item.getTags().map(t=>t.tag),authors:item.getCreators().map(c=>c.name||[c.firstName,c.lastName].filter(Boolean).join(' ')).join(', '),dateAdded:Date.parse(item.dateAdded.replace(' ','T')+'Z'),deleted:item.deleted,writable:allowed(item),notes};
+    const notes=[],itemScope=scope(item.libraryID),registry=engine.state.noteRecords?.[itemScope+'/'+item.key];
+    for(const nid of item.getNotes()) {const n=await Zotero.Items.getAsync(nid);if(n && !n.deleted){const snapshot={key:n.key,id:n.id,html:n.getNote(),tags:n.getTags().map(t=>t.tag),dateAdded:n.dateAdded,dateModified:n.dateModified};if(snapshot.tags.includes('LF:Combined')){const embedded=C.records(snapshot);snapshot.records=embedded.length?embedded:registry?.noteKey===snapshot.key?registry.records:N.inferRecords(snapshot,item.key,itemScope,pack.id);}notes.push(snapshot);}}
+    return {id:item.id,key:item.key,scope:itemScope,libraryID:item.libraryID,title:item.getField('title'),extra:item.getField('extra'),tags:item.getTags().map(t=>t.tag),authors:item.getCreators().map(c=>c.name||[c.firstName,c.lastName].filter(Boolean).join(' ')).join(', '),dateAdded:Date.parse(item.dateAdded.replace(' ','T')+'Z'),deleted:item.deleted,writable:allowed(item),notes};
   }
   async function normalized(items) {
     const ids=new Set();
@@ -116,10 +116,12 @@ var LiteratureFlow = (() => {
     }
     return result;
   }
-  async function saveCombined(item,incoming,tags,valid,trashOld=false){
+  async function saveCombined(item,incoming,tags,valid,options={}){
     const snapshot=await get(item.id);if(!snapshot?.writable||snapshot.deleted||!valid())throw new Error('review-commit-ineligible');
-    const plan=N.assemble(snapshot,pack,engine.state.tasks,incoming,await formattedBodies(snapshot));
-    if(plan.target?.html===plan.html&&!plan.archive.length&&plan.target.tags.includes('AI-Summary'))return {key:plan.target.key,archived:0};
+    const plan=N.assemble(snapshot,pack,engine.state.tasks,incoming,await formattedBodies(snapshot),options);
+    const remember=key=>{engine.state.noteRecords||={};engine.state.noteRecords[snapshot.scope+'/'+snapshot.key]={noteKey:key,records:plan.records};};
+    if(plan.target&&!incoming&&options.latestOnly&&!plan.archive.length&&!plan.retire.length&&plan.target.tags.includes('AI-Summary')){remember(plan.target.key);return {key:plan.target.key,archived:0,deleted:0};}
+    if(plan.target?.html===plan.html&&!plan.archive.length&&!plan.retire.length&&plan.target.tags.includes('AI-Summary')){remember(plan.target.key);return {key:plan.target.key,archived:0,deleted:0};}
     // Durable, private backup precedes any mutation; edits to other levels remain intact.
     const backupDir=PathUtils.join(dir,'note-backups');await IOUtils.makeDirectory(backupDir,{ignoreExisting:true,permissions:0o700});
     await atomic(PathUtils.join(backupDir,Date.now()+'-'+uuid()+'.json'),{parent:snapshot.key,scope:snapshot.scope,notes:snapshot.notes});
@@ -136,12 +138,14 @@ var LiteratureFlow = (() => {
       // Native AI Butler summary discovery uses this tag; no duplicate preview Note.
       if(!note.getTags().some(t=>t.tag==='AI-Summary'))note.addTag('AI-Summary');
       await note.save();noteKey=note.key;
-      for(const id of plan.archive){const old=await Zotero.Items.getAsync(id);old.addTag('LF:Archive');if(trashOld)old.deleted=true;await old.save();}
+      for(const id of plan.archive){const old=await Zotero.Items.getAsync(id);old.addTag('LF:Archive');await old.save();}
+      for(const id of plan.retire){const old=await Zotero.Items.getAsync(id);old.deleted=true;await old.save();}
       for(const tag of tags)if(!parent.hasTag(tag))parent.addTag(tag);
       if(tags.length)await parent.save();
     });
+    remember(noteKey);
     for(const t of engine.state.tasks)if(t.status==='completed'&&plan.records.some(r=>r.task===t.id))t.noteKey=noteKey;
-    return {key:noteKey,archived:plan.archive.length};
+    return {key:noteKey,archived:plan.archive.length,deleted:plan.retire.length};
   }
   async function commit(item,html,tags,valid){return (await saveCombined(item,html,tags,valid)).key;}
   const responsePath=(id,g)=>PathUtils.join(dir,'responses',id+'-'+g+'.json');
@@ -227,15 +231,26 @@ var LiteratureFlow = (() => {
       }
       return {role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,baselineCount:Object.keys(engine.state.baseline).length,connectionReady:!!config.baseURL.trim()&&!!config.model.trim(),contract:pack.id,tasks};
     },
-    async consolidate(args,recursive,trashOld=false){
+    async consolidate(args,recursive,options={}){
       if(engine.state.role!=='executor')throw new Error('请在执行设备上整合笔记');
+      if(typeof options==='boolean')options={deleteSources:options,latestOnly:options};
       const items=await selected(args,recursive),result=[];
       return engine.serial(async()=>{
         for(const item of items){if(!item.writable||item.deleted)continue;
-          result.push({parent:item.key,...await saveCombined(item,null,[],()=>engine.state.role==='executor'&&!stopped,trashOld)});
+          result.push({parent:item.key,...await saveCombined(item,null,[],()=>engine.state.role==='executor'&&!stopped,options)});
         }
         await engine.save();return result;
       });
+    },
+    async consolidationPreview(args,recursive){
+      const items=await selected(args,recursive),rows=[];
+      for(const item of items){
+        const sources=item.notes.filter(n=>!n.tags.includes('LF:Combined')).map(n=>({note:n,stages:N.sourceStages(n,pack)})).filter(x=>x.stages.length);
+        if(!sources.length)continue;
+        const duplicates=C.stages.filter(stage=>sources.filter(x=>x.stages.includes(stage)).length>1);
+        rows.push({id:item.id,key:item.key,title:item.title,sources:sources.length,stages:C.stages.filter(stage=>sources.some(x=>x.stages.includes(stage))),duplicates});
+      }
+      return {papers:rows.length,sources:rows.reduce((n,r)=>n+r.sources,0),duplicateStageGroups:rows.reduce((n,r)=>n+r.duplicates.length,0),rows};
     },
     async markdown(args,recursive){
       const items=await selected(args,recursive),notes=[];

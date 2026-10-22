@@ -97,3 +97,18 @@ test('existing combined notes gain native summary discovery without body changes
  assert.equal((await r.args.api.view(r.args,false)).items[0].levels.L1.state,'complete');
  const saves=r.saves;await r.args.api.consolidate(r.args,false);assert.equal(r.saves,saves);
 });
+test('latest-only consolidation moves recognized source notes to trash after a durable backup',async()=>{
+ const r=runtime();await r.start();await r.configure();await r.args.api.pause();const C=require('../addon/content/core');
+ const old=new r.Zotero.Item('note');old.dateModified='2026-01-01 00:00:00';old.setNote(C.render('Older',{stage:'L2',revision:0,task:'older',parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test'));old.addTag('LF:Note');
+ const latest=new r.Zotero.Item('note');latest.dateModified='2026-02-01 00:00:00';latest.setNote(C.render('**Latest**',{stage:'L2',revision:0,task:'latest',parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test'));latest.addTag('LF:Note');
+ await r.Zotero.DB.executeTransaction(async()=>{await old.save();await latest.save();});
+ const beforeRequests=r.requests,result=await r.args.api.consolidate(r.args,false,{latestOnly:true,deleteSources:true});
+ assert.equal(result[0].deleted,2);assert.equal(old.deleted,true);assert.equal(latest.deleted,true);assert.equal(r.requests,beforeRequests);assert([...r.files.keys()].some(p=>p.includes('/note-backups/')));
+ const notes=(await r.Zotero.Items.getAsync(r.parent.notes)).filter(n=>!n.deleted);assert.equal(notes.length,1);assert(notes[0].getNote().includes('<strong>Latest</strong>'));assert(notes[0].getTags().some(t=>t.tag==='AI-Summary'));
+});
+
+test('consolidation preview reports exact source and duplicate-stage counts without writes',async()=>{
+ const r=runtime();await r.start();await r.configure();await r.args.api.pause();const C=require('../addon/content/core');
+ for(const task of ['first','second']){const n=new r.Zotero.Item('note');n.setNote(C.render(task,{stage:'L2',revision:0,task,parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test'));n.addTag('LF:Note');await r.Zotero.DB.executeTransaction(()=>n.save());}
+ const before=r.saves,p=await r.args.api.consolidationPreview(r.args,false);assert.equal(r.saves,before);assert.equal(p.papers,1);assert.equal(p.sources,2);assert.equal(p.duplicateStageGroups,1);assert.deepEqual(plain(p.rows[0].stages),['L2']);
+});

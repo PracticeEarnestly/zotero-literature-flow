@@ -51,7 +51,7 @@ flowchart LR
 
 恢复优先检查同任务 Note；若响应已写而状态指针未写，则从确定性文件名发现响应并复用。主动取消后不被普通事件重新激活。暂停使旧代次失效，保留恢复资格。
 
-Note 使用普通可见 `LF_RECORD_V1` JSON 行，含 stage、revision、task、scope、parent、prompt、source、created、previous。新版本成功才通过 previous 关系取代旧有效结果；旧内容始终保留。模型正文出现同名恢复标记时会转义其标识，避免伪造任务身份。
+综合 Note 正文不保存工作流维护记录，只包含可读的 L1/L2/L3 内容。stage、revision、task、scope、parent、prompt、source、created、previous 保存在执行端的私有状态中；状态缺失时，可由固定的外层级标题保守重建完成级别。新版本成功才通过 previous 关系取代旧有效结果。模型正文出现旧式恢复标记时会转义其标识，避免伪造任务身份。
 
 ## 输入与兼容性限制
 

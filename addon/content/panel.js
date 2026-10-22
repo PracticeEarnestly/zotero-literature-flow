@@ -119,7 +119,7 @@ for(const action of ['fill','repair','retry','cancel','regenerate','protect'])bu
 button('bind',async()=>{if(confirm('确认该全文来自所选主文 PDF，并且正文内容完整？仅发送文字，不发送图像。')){await api.bind(args,$('pdfKey').value.trim(),$('markdownKey').value.trim());message('来源绑定已保存');}});
 button('exportConfig',()=>api.exportConfig(window));
 button('importConfig',async()=>{if(confirm('导入后重置为待机，清除本机端点、密钥与来源绑定。继续？')){await api.importConfig(window);await loadSettings();message('已导入并重置为待机');}});
-button('consolidate',async()=>{await refresh();if(confirm(`将当前 ${latest.items.length} 篇文献的已有有效结果整合为每篇一条综合笔记？原有分散 LF 笔记保留并标记为历史备份，不调用模型。`)){const r=await api.consolidate(args,$('recursive').checked);message(`已整合 ${r.length} 篇。后续结果更新在同一条综合笔记中；原始笔记已备份。`);}});
+button('consolidate',async()=>{await refresh();const p=await api.consolidationPreview(args,$('recursive').checked);if(!p.sources)throw new Error('当前范围没有明确由 AI Butler / Literature Flow 生成的可整合笔记');if(confirm(`将在 ${p.papers} 篇文献中整合 ${p.sources} 条明确识别的 L1–L3 来源笔记。按 L1 → L2 → L3 排列；${p.duplicateStageGroups} 组同级重复结果只采用修改日期最新的一条。写入综合笔记并完成私有备份后，全部这些来源笔记移入 Zotero 回收站。不会调用模型。`)){const r=await api.consolidate(args,$('recursive').checked,{latestOnly:true,deleteSources:true});message(`已整合 ${r.length} 篇，${r.reduce((n,x)=>n+x.deleted,0)} 条明确识别的原分散笔记已移入回收站，可从 Zotero 回收站或私有备份恢复。无法明确识别的笔记未改动。`);}});
 button('exportMarkdown',()=>api.exportMarkdown(window,args,$('recursive').checked));
 button('report',()=>api.exportReport(window,args,$('recursive').checked));
 async function loadSettings(){await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;}

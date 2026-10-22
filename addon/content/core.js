@@ -79,9 +79,13 @@ var LFCore = (() => {
   }
   function records(note) {
     if (!(note.tags || []).includes('LF:Note') || (note.tags || []).includes('LF:Archive')) return [];
-    const matches=[...visible(note.html).matchAll(/^LF_RECORD_V1 (\{[^\n]+\})\s*$/gm)];
+    const decode=v=>String(v).replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+    const hidden=[...String(note.html).matchAll(/\bdata-lf-record="([^"]+)"/gi)].map(m=>decode(m[1]));
+    const legacy=[...visible(note.html).matchAll(/^LF_RECORD_V1 (\{[^\n]+\})\s*$/gm)].map(m=>m[1]);
     try{
-      const result=matches.map(m=>JSON.parse(m[1]));
+      // Hidden records are authoritative when present. This also prevents a
+      // visible line copied from model output from replacing task identity.
+      const result=Array.isArray(note.records)?note.records:(hidden.length?hidden:legacy).map(v=>JSON.parse(v));
       if(result.some(m=>!stages.includes(m.stage)||!Number.isInteger(m.revision)||m.revision<0||typeof m.task!=='string'||!m.task||!m.parent||!m.scope))return [];
       if(new Set(result.map(m=>m.stage)).size!==result.length)return [];
       return result;
@@ -137,8 +141,10 @@ var LFCore = (() => {
     for(const t of state.tokens)if(/^heading_(open|close)$/.test(t.type))t.tag='h'+Math.min(6,4+Number(t.tag.slice(1))-base);
   });
   function markdownHTML(text){return markdown.render(String(text).replace(/LF_RECORD_V1/g,'LF_QUOTED_RECORD_V1'));}
-  function renderBody(text,record){return markdownHTML(text)+'<p>输入：'+escape(record.source)+'；文本分析，未发送图像。结构校验不等于科学事实验证。</p>';}
-  const recordHTML=record=>'<p>'+escape('LF_RECORD_V1 '+JSON.stringify(record))+'</p>';
+  function renderBody(text){return markdownHTML(text);}
+  // The zero-width character keeps Zotero from discarding an otherwise empty
+  // metadata span while remaining invisible in the Note and Butler preview.
+  const recordHTML=record=>'<span data-lf-record="'+escape(JSON.stringify(record))+'">\u200b</span>';
   function render(text, record, title) {
     return '<div><h3>[Literature Flow] '+record.stage+' · '+escape(title)+'</h3>'+renderBody(text,record)+recordHTML(record)+'</div>';
   }
