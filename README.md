@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.4**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.5**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-[下载 XPI](dist/zotero-literature-flow-0.3.4.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.4.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.3.5.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.5.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 
@@ -17,6 +17,8 @@
 默认只阅读，不会调用模型或修改文献库。首次在“高级设置”填写连接，点击“保存并开启”，确认本机是唯一执行设备。日常只使用顶部的“暂停自动处理 / 继续自动处理”；暂停也会暂停手动队列。首次开启只记录当前文献，恢复或重新开启沿用原历史记录，后续仅新增或实际评分变化产生自动任务。
 
 自动化卡片直接显示处理规则和任务数量，任务表紧随其后。连接、角色与配置导入导出默认收起。见 [0.3.4 界面与实机验证](docs/AUTOMATION_UI.md)。
+
+遇到标签格式错误且有已保存响应时，可在任务表点击 **检查已存结果**，先利用缓存检查，不重复调用模型。只有明确选择 **重新请求** 才重新推理。见 [0.3.5 修复与恢复验证](docs/OUTPUT_TAGS_JSON_FIX.md)。
 
 ## 输入和输出
 

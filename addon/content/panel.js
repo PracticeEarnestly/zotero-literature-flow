@@ -4,7 +4,7 @@ let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBus
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
-const reasonLabels={'waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','explicit-retry':'等待重试'};
+const reasonLabels={'output-tags-json':'标签格式无法解析；可先检查已存结果','checking-saved-response':'正在检查已存结果（不调用模型）','review-saved-response-missing':'已存结果缺失，需核对后重新请求','waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','explicit-retry':'等待重试'};
 const labels={complete:'完成',missing:'缺失',review:'待核对',conflict:'冲突',deleted:'结果已删除'};
 function message(text){$('message').textContent=text;}
 async function refresh(){
@@ -27,7 +27,7 @@ function selectionState(){
 }
 async function operateTasks(ids,action){
   if(action==='retry'&&!confirm(`重试 ${ids.length} 个失败任务？可能重新调用模型，已有结果会再次核对。`))return;
-  try{const count=await api.taskAction(ids,action);for(const id of ids)selectedTasks.delete(id);queueSignature='';message(`${action==='cancel'?'已取消':'已重新排队'} ${count} 个任务。已有笔记保留。`);await refreshQueue();}catch(e){message(e.message||String(e));}
+  try{const count=await api.taskAction(ids,action);for(const id of ids)selectedTasks.delete(id);queueSignature='';message(`${action==='cancel'?'已取消':action==='revalidate'?'已排队检查已存结果（不调用模型）':'已重新排队'} ${count} 个任务。已有笔记保留。`);await refreshQueue();}catch(e){message(e.message||String(e));}
 }
 function renderQueue(){
   const rows=visibleTasks();selectionState();$('tasks').replaceChildren();
@@ -38,7 +38,7 @@ function renderQueue(){
     const title=cell(t.title),key=make('span');key.className='task-key';key.textContent=t.parent;title.appendChild(key);cell(t.stage);
     const badge=make('span');badge.className='badge '+t.status;badge.textContent=taskLabels[t.status]||t.status;cell().appendChild(badge);
     cell(t.mode==='automatic'?'自动':'手动');cell(String(t.attempts||0));cell(reasonLabels[t.reason]||t.reason||'—');
-    const actions=cell();for(const action of ['cancel','retry']){if(action==='retry'&&t.status!=='failed'||action==='cancel'&&['completed','cancelled'].includes(t.status))continue;const b=make('button');b.textContent=action==='cancel'?'取消':'重试';b.disabled=action==='retry'&&(queueState.paused||queueState.role!=='executor');b.addEventListener('click',async()=>{b.disabled=true;await operateTasks([t.id],action);b.disabled=false;});actions.appendChild(b);}if(!actions.childNodes.length)actions.textContent='—';
+    const actions=cell();for(const action of ['cancel','revalidate','retry']){if(action==='revalidate'&&!t.canRevalidate||action==='retry'&&t.status!=='failed'||action==='cancel'&&['completed','cancelled'].includes(t.status))continue;const b=make('button');b.textContent=action==='cancel'?'取消':action==='revalidate'?'检查已存结果':'重新请求';b.disabled=action!=='cancel'&&(queueState.paused||queueState.role!=='executor');b.addEventListener('click',async()=>{b.disabled=true;await operateTasks([t.id],action);b.disabled=false;});actions.appendChild(b);}if(!actions.childNodes.length)actions.textContent='—';
     $('tasks').appendChild(tr);
   }
 }

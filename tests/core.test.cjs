@@ -109,3 +109,39 @@ test('read-only feed and deleted-item events never extend the personal baseline'
  await f.e.observe(paper({key:'FEED0001',writable:false,dateAdded:20000}));await f.e.observe(paper({key:'DELETED1',deleted:true,dateAdded:20000}));
  assert.equal(Object.keys(f.e.state.baseline).length,1);assert.equal(f.e.state.tasks.length,0);
 });
+function withTags(raw,stage='L1'){const r=output(stage);r.text=r.text.replace(/ZOTERO_TAGS_JSON_START[\s\S]*?ZOTERO_TAGS_JSON_END/,'ZOTERO_TAGS_JSON_START\n'+raw+'\nZOTERO_TAGS_JSON_END');return r;}
+test('tag JSON accepts typographic delimiters including the observed mixed ASCII closing keys',()=>{
+ for(const raw of ['{“workflow": [“AI:L1”, “AI:L2”], “evidence": [“Evidence:E2”], “disease”: []}', '{“evidence”: [“Evidence:E2”]}'])assert.deepEqual(C.validate(withTags(raw),'L1',pack).tags,['Evidence:E2','Data:NotReported']);
+});
+test('tag JSON preserves valid string content and scientific prose with quotation marks',()=>{
+ const raw='{"evidence":["Evidence:E2"],"label":["Text with “quoted words” and \\"escaped\\" quotes"]}';
+ const r=withTags(raw);r.text='“Quoted scientific statement”\n'+r.text;assert(C.validate(r,'L1',pack).text.startsWith('“Quoted scientific statement”'));
+ assert.deepEqual(C.validate(withTags('{“evidence”: [“Evidence:E2”], "label": ["Text “unchanged”"]}'),'L1',pack).tags,['Evidence:E2','Data:NotReported']);
+});
+test('tag JSON still rejects malformed syntax, ambiguous quotes, wrong schema and conflicting evidence',()=>{
+ for(const raw of ['{“evidence”: [“Evidence:E2”],}',"{'evidence':['Evidence:E2']}",'{“evidence”: [“Evidence:E2]}','{“label”: [“a “nested” quote”]}','{“evidence”: [“Evidence:E2”]} trailing','{evidence: ["Evidence:E2"]}'])assert.throws(()=>C.validate(withTags(raw),'L1',pack),/output-tags-json/);
+ assert.throws(()=>C.validate(withTags('{“evidence”: “Evidence:E2”}'),'L1',pack),/output-tags-schema/);
+ assert.throws(()=>C.validate(withTags('{“evidence”: [“Evidence:E2”, “Evidence:E3”]}'),'L1',pack),/output-conflicting-evidence/);
+});
+async function cachedFailure(f){await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='failed';t.reason='output-tags-json';t.attempts=1;t.response=await f.p.writeResponse(t.id,t.generation,{response:withTags('{“evidence": [“Evidence:E2”]}'),input:await f.p.input(),generation:t.generation,contract:pack.id,dependencies:[]});return t;}
+test('revalidate saved tags commits once without inference or generation changes',async()=>{
+ const f=fixture(),t=await cachedFailure(f),generation=t.generation;
+ assert.equal(await f.e.taskAction([t.id],'revalidate'),1);await f.e.step();assert.equal(f.calls,0);assert.equal(f.commits,1);assert.equal(t.attempts,1);assert.equal(t.generation,generation);assert.equal(t.status,'completed');
+ assert.equal(await f.e.taskAction([t.id],'revalidate'),0);await f.e.step();assert.equal(f.commits,1);
+});
+test('revalidate never falls back to inference when saved response is absent or changes',async()=>{
+ for(const change of ['absent','source','contract','generation']){const f=fixture(),t=await cachedFailure(f);await f.e.taskAction([t.id],'revalidate');
+  if(change==='absent')f.responses.clear();if(change==='source')f.p.input=async()=>({text:'Changed',complete:true,hash:'changed'});
+  if(change==='contract')f.responses.get(t.response).contract='different';if(change==='generation')f.responses.get(t.response).generation++;
+  await f.e.step();assert.equal(f.calls,0);assert.equal(f.commits,0);assert.match(t.reason,/^review-/);
+ }
+});
+test('revalidate only selects failed tags tasks with saved responses, and respects pause and cancellation',async()=>{
+ const f=fixture(),t=await cachedFailure(f);assert.equal(await f.e.taskAction(['other'],'revalidate'),0);
+ await f.e.controls({paused:true});await assert.rejects(()=>f.e.taskAction([t.id],'revalidate'),/恢复/);await f.e.controls({paused:false});
+ await f.e.taskAction([t.id],'revalidate');await f.e.taskAction([t.id],'cancel');await f.e.step();assert.equal(f.commits,0);assert.equal(f.calls,0);
+});
+test('saved-response checks run before unrelated queued model work',async()=>{
+ const f=fixture(),t=await cachedFailure(f);await f.e.taskAction([t.id],'revalidate');
+ f.e.state.tasks.unshift({...t,id:'other',parent:'OTHER',cachedOnly:false,response:undefined});await f.e.step();assert.equal(t.status,'completed');assert.equal(f.calls,0);assert.equal(f.commits,1);
+});

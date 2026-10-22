@@ -34,13 +34,34 @@ var LFCore = (() => {
       return /[\p{L}\p{N}]/u.test(body.join('\n'));
     });
   }
+  function parseTagJSON(raw) {
+    try { return JSON.parse(raw); } catch {}
+    // Normalize only paired typographic string delimiters. Never rewrite valid
+    // JSON strings, infer missing syntax, or evaluate model-supplied code.
+    let result='',quote=null,escaped=false;
+    for(const c of raw){
+      if(quote){
+        if(escaped){result+=c;escaped=false;continue;}
+        if(c==='\\'){result+=c;escaped=true;continue;}
+        if(quote==='ascii'){result+=c;if(c==='"')quote=null;}
+        else if(c==='”'||c==='"'){result+='"';quote=null;}
+        else if(c==='“')throw new Error('output-tags-json');
+        else result+=c;
+      }else if(c==='“'){result+='"';quote='curly';}
+      else if(c==='"'){result+=c;quote='ascii';}
+      else if(c==='”')throw new Error('output-tags-json');
+      else result+=c;
+    }
+    if(quote)throw new Error('output-tags-json');
+    try{return JSON.parse(result);}catch{throw new Error('output-tags-json');}
+  }
   function validate(response, stage, pack) {
     if (response.finish !== 'stop') throw new Error('output-incomplete: finish_reason must be stop');
     let text = String(response.text || '').replace(/<(think|thinking|reasoning|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi,'').trim();
     if (!text || /<(think|thinking|reasoning|analysis)\b/i.test(text)) throw new Error('output-empty-or-reasoning');
     const blocks = [...text.matchAll(/ZOTERO_TAGS_JSON_START\s*([\s\S]*?)\s*ZOTERO_TAGS_JSON_END/g)];
     if (blocks.length !== 1 || (text.match(/ZOTERO_TAGS_JSON_(START|END)/g)||[]).length !== 2) throw new Error('output-tags-boundary');
-    let parsed; try { parsed = JSON.parse(blocks[0][1]); } catch { throw new Error('output-tags-json'); }
+    const parsed = parseTagJSON(blocks[0][1]);
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || Object.values(parsed).some(v => !Array.isArray(v) || v.some(t => typeof t !== 'string'))) throw new Error('output-tags-schema');
     text = text.replace(blocks[0][0],'').replace(/```(?:json)?\s*```/g,'').trim();
     if (!/[\p{L}\p{N}]/u.test(text) || !checkSections(text, pack.stages[stage].sections)) throw new Error('output-missing-sections');
@@ -164,7 +185,7 @@ var LFCore = (() => {
         if (!t) {
           t={id:this.p.uuid(),logical,scope:item.scope,parent:item.key,itemID:item.id,stage,revision,mode,previous:force && old.note ? [old.note.key] : [],status:'queued',generation:0,attempts:0,contract:this.pack.id};
           this.state.tasks.push(t);
-        } else if (revive && ['failed','cancelled'].includes(t.status)) {t.status='queued';t.reason='explicit-retry';t.generation++;t.attempts=0;t.mode=mode;delete t.response;}
+        } else if (revive && ['failed','cancelled'].includes(t.status)) {t.status='queued';t.reason='explicit-retry';t.generation++;t.attempts=0;t.mode=mode;delete t.response;delete t.cachedOnly;}
         if (mode==='manual' && t.mode==='automatic' && !['completed','cancelled'].includes(t.status)) t.mode='manual';
       }
       await this.save();
@@ -177,16 +198,18 @@ var LFCore = (() => {
       });
     }
     async taskAction(ids, action) {
-      if (!['cancel','retry'].includes(action)) throw new Error('无效的任务操作');
+      if (!['cancel','retry','revalidate'].includes(action)) throw new Error('无效的任务操作');
       return this.serial(async()=>{
-        if(action==='retry' && !this.canRun())throw new Error('恢复执行队列后才能重试');
+        if(['retry','revalidate'].includes(action) && !this.canRun())throw new Error('恢复执行队列后才能重试');
         const selected=new Set(ids);let count=0;
         for(const t of this.state.tasks){
           if(!selected.has(t.id))continue;
           if(action==='cancel' && !['completed','cancelled'].includes(t.status)){
             t.status='cancelled';t.reason='user';t.generation++;count++;
+          }else if(action==='revalidate' && t.status==='failed' && t.reason==='output-tags-json' && t.response){
+            t.status='queued';t.reason='checking-saved-response';t.cachedOnly=true;t.nextAt=0;count++;
           }else if(action==='retry' && t.status==='failed'){
-            t.status='queued';t.reason='explicit-retry';t.generation++;t.attempts=0;t.nextAt=0;delete t.response;count++;
+            t.status='queued';t.reason='explicit-retry';t.generation++;t.attempts=0;t.nextAt=0;delete t.response;delete t.cachedOnly;count++;
           }
         }
         await this.save();return count;
@@ -200,7 +223,8 @@ var LFCore = (() => {
       this.busy=true;
       let t, generation;
       try {
-        t=this.state.tasks.find(t=>['queued','running','waiting','ready_to_commit'].includes(t.status) && (!t.nextAt || t.nextAt<=this.p.now()));
+        const due=t=>['queued','running','waiting','ready_to_commit'].includes(t.status) && (!t.nextAt || t.nextAt<=this.p.now());
+        t=this.state.tasks.find(t=>t.cachedOnly&&due(t)) || this.state.tasks.find(due);
         if(!t)return false;
         generation=t.generation;
         let item=await this.p.get(t.itemID);
@@ -216,6 +240,7 @@ var LFCore = (() => {
         if(t.contract!==this.pack.id) throw new Error('review-contract-changed');
         let envelope=t.response ? await this.p.readResponse(t.response) : null;
         if(!envelope) {
+          if(t.cachedOnly)throw new Error('review-saved-response-missing');
           const input=await this.p.input(item,t.stage,this.pack);
           if(!input.complete || !input.text) throw new Error('waiting-fulltext');
           if(input.text.length>this.pack.maxInputChars) throw new Error('waiting-fulltext-too-long');
