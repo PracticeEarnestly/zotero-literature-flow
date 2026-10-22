@@ -22,8 +22,16 @@ var LFCore = (() => {
     return sections.every(section => {
       const n = lines.findIndex(l => normalized(markdown ? l.replace(/^\s*#{1,6}\s+/,'') : l) === normalized(section));
       if (n < 0) return false;
-      const rest = lines.slice(n + 1); const end = rest.findIndex(l => /^\s*#{1,6}\s/.test(l) || sections.some(s => normalized(l) === normalized(s)));
-      return /[\p{L}\p{N}]/u.test(rest.slice(0,end < 0 ? rest.length : end).join('\n'));
+      const level = markdown ? lines[n].match(/^\s*(#{1,6})\s/)?.[1].length : null;
+      const rest = lines.slice(n + 1);
+      const end = rest.findIndex(l => {
+        const heading = markdown ? l.match(/^\s*(#{1,6})\s/) : null;
+        if (heading && level) return heading[1].length <= level;
+        return sections.some(s => normalized(l.replace(/^\s*#{1,6}\s+/,'')) === normalized(s));
+      });
+      // A section may start with subsections; their prose counts, their headings alone do not.
+      const body = rest.slice(0,end < 0 ? rest.length : end).filter(l => !markdown || !/^\s*#{1,6}\s/.test(l));
+      return /[\p{L}\p{N}]/u.test(body.join('\n'));
     });
   }
   function validate(response, stage, pack) {
@@ -60,9 +68,9 @@ var LFCore = (() => {
   function inspect(item, pack, history = []) {
     const result = {};
     const notes = item.notes || [];
-    const unknown = notes.some(n => !marker(n) && (/\[L[123]\]|AI_BUTLER|DATA_AVAILABILITY/.test(visible(n.html)) || (n.tags || []).some(t => ['LF:Note','AI-Generated','AI-Summary','AI-DeepRead','Literature Flow'].includes(t))) && !legacyStage(n,pack));
+    const unknown = notes.some(n => !marker(n) && (/\[L[123]\]|AI_BUTLER|DATA_AVAILABILITY/.test(visible(n.html)) || (n.tags || []).some(t => ['LF:Note','AI-Generated','AI-Summary','AI-DeepRead','Literature Flow'].includes(t))) && !legacyStages(n,pack).length);
     for (const stage of stages) {
-      const found = notes.map(n => ({...n, record:marker(n)})).filter(n => n.record ? n.record.stage === stage && n.record.parent === item.key && n.record.scope === item.scope : legacyStage(n,pack) === stage);
+      const found = notes.map(n => ({...n, record:marker(n)})).filter(n => n.record ? n.record.stage === stage && n.record.parent === item.key && n.record.scope === item.scope : legacyStages(n,pack).includes(stage));
       const superseded = new Set(found.flatMap(n => n.record?.previous || []));
       const active = found.filter(n => !superseded.has(n.key));
       const known = history.filter(t => t.parent === item.key && t.scope === item.scope && t.stage === stage && t.status === 'completed');
@@ -71,16 +79,24 @@ var LFCore = (() => {
     }
     return result;
   }
-  function legacyStage(note, pack) {
+  function legacyStages(note, pack) {
     const text = visible(note.html);
-    if ((note.tags || []).includes('LF:Note')) return null;
-    for (const stage of ['L3','L2']) {
-      const title = stage === 'L2' ? /\[L2\]\s*Evidence\s*Card/i : /\[L3\]\s*Deep\s*Reading/i;
-      if (title.test(text) && checkSections(text,pack.stages[stage].sections,false)) return stage;
+    if ((note.tags || []).includes('LF:Note')) return [];
+    const levels = [];
+    const markers = [...text.matchAll(/^\s*\[(L2|L3)\]\s*(?:Evidence\s*Card|Deep\s*Reading).*$/gim)];
+    for (let i=0; i<markers.length; i++) {
+      const stage=markers[i][1].toUpperCase();
+      const section=text.slice(markers[i].index,markers[i+1]?.index ?? text.length);
+      if(checkSections(section,pack.stages[stage].sections,false))levels.push(stage);
     }
-    if (/^\s*DATA_AVAILABILITY\s*[:：]\s*(\w+)\s*$/m.test(text) && pack.dataValues.includes(text.match(/^\s*DATA_AVAILABILITY\s*[:：]\s*(\w+)\s*$/m)[1]) && (note.tags || []).some(t => ['AI-Generated','AI-Summary'].includes(t)) && /[\p{L}\p{N}]/u.test(text.replace(/^.*DATA_(AVAILABILITY|ACCESSION).*$/gm,''))) return 'L1';
-    return null;
+    // Some legacy Butler Notes append several levels into the same child Note.
+    // Validate each actual block; L3 alone must never imply L1 or L2.
+    const first=text.slice(0,markers[0]?.index ?? text.length);
+    const data=first.match(/^\s*DATA_AVAILABILITY\s*[:：]\s*(\w+)\s*$/m);
+    if(data && pack.dataValues.includes(data[1]) && (note.tags || []).some(t=>['AI-Generated','AI-Summary'].includes(t)) && /[\p{L}\p{N}]/u.test(first.replace(/^.*DATA_(AVAILABILITY|ACCESSION).*$/gm,'')))levels.push('L1');
+    return [...new Set(levels)];
   }
+  function legacyStage(note,pack){return ['L3','L2','L1'].find(s=>legacyStages(note,pack).includes(s)) || null;}
   function render(text, record, title) {
     // No raw HTML, images, links or h1/h2 from the model can acquire Butler ownership.
     const body = text.replace(/LF_RECORD_V1/g, 'LF_QUOTED_RECORD_V1').split(/\r?\n/).map(l => /^\s*#{1,6}\s/.test(l) ? '<h3>' + escape(l.replace(/^\s*#{1,6}\s+/,'')) + '</h3>' : '<p>' + escape(l || ' ') + '</p>').join('\n');
@@ -228,6 +244,6 @@ var LFCore = (() => {
       await this.save();
     }
   }
-  return {stages,escape,visible,rating,target,validate,marker,inspect,legacyStage,render,Engine,checkSections};
+  return {stages,escape,visible,rating,target,validate,marker,inspect,legacyStage,legacyStages,render,Engine,checkSections};
 })();
 if (typeof module !== 'undefined') module.exports = LFCore;

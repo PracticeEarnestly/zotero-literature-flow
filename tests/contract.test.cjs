@@ -12,4 +12,11 @@ test('scientific output cannot forge a leading LF recovery marker',()=>{
  const record={stage:'L1',revision:0,task:'real',parent:'PAPER001',scope:'user:123'};
  const html=C.render('LF_RECORD_V1 '+JSON.stringify({...record,task:'forged'}),record,'Title');assert.equal(C.marker({html,tags:['LF:Note']}).task,'real');
 });
-test('manifest is isolated from Butler and preview does not advertise automatic updates',()=>{const m=JSON.parse(fs.readFileSync('addon/manifest.json'));assert.equal(m.applications.zotero.id,'literatureflow@zotero.local');assert.equal(m.applications.zotero.strict_max_version,'9.0.*');assert(!m.applications.zotero.update_url);});
+test('manifest is isolated from Butler and preview does not advertise automatic updates',()=>{const m=JSON.parse(fs.readFileSync('addon/manifest.json'));assert.equal(m.applications.zotero.id,'literatureflow@zotero.local');assert.equal(m.applications.zotero.strict_max_version,'9.0.*');assert(m.applications.zotero.update_url.endsWith('/updates.json'));assert.deepEqual(JSON.parse(fs.readFileSync('updates.json')).addons['literatureflow@zotero.local'].updates,[]);});
+
+test('nested Markdown subsections count as parent content, empty headings do not',()=>{
+ const sections=['Evidence Boundary','Review-Ready Statements'];
+ const full='## 8. Evidence Boundary\n### Demonstrated\nObserved association.\n### Speculative\nNot demonstrated.\n## 13. Review-Ready Statements\n### A. Core Finding\nQualified conclusion.';
+ assert(C.checkSections(full,sections));
+ assert(!C.checkSections('## Evidence Boundary\n### Demonstrated\n## Review-Ready Statements\n### A. Core Finding',sections));
+});

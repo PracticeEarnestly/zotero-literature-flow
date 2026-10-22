@@ -8,7 +8,7 @@ with zipfile.ZipFile(p) as z:
     assert z.testzip() is None
     m=json.loads(z.read('manifest.json'));assert m['version']==v
     assert m['applications']['zotero']['id']=='literatureflow@zotero.local'
-    assert 'update_url' not in m['applications']['zotero']
+    assert m['applications']['zotero']['update_url'].endswith('/updates.json')
     ET.fromstring(z.read('content/panel.xhtml'))
     pack=json.loads(z.read('content/contracts/legacy.json'))
     for stage in pack['stages'].values():assert hashlib.sha256(stage['rawPrompt'].encode()).hexdigest()==stage['rawSha256']

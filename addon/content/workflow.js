@@ -61,7 +61,9 @@ var LiteratureFlow = (() => {
       if(binding.pdfSize!==st.size || binding.pdfModified!==st.lastModified || binding.markdownHash!==hash(raw))throw new Error('review-binding-source-changed');
       return {text,hash:hash(text),mode:'MINERU_TEXT',complete:true,pdfKey:pdf.key,attachmentKey:md.key,coverage:'user-confirmed',imagesSent:0};
     }
-    const stats=await Zotero.Fulltext.getPages(pdf.id);
+    const row=await Zotero.Fulltext.getPages(pdf.id);
+    // Zotero DB rows are proxies; never persist or JSON-serialize the row itself.
+    const stats=row ? {indexedPages:row.indexedPages,total:row.total} : null;
     if(!stats || !stats.total || stats.indexedPages!==stats.total)throw new Error('waiting-fulltext-coverage');
     const cache=Zotero.Fulltext.getItemCacheFile(pdf).path;
     if(!await IOUtils.exists(cache))throw new Error('waiting-fulltext-cache');
@@ -118,7 +120,8 @@ var LiteratureFlow = (() => {
     // Profile directory is local and separate from Zotero's synced data directory.
     dir=PathUtils.join(Services.dirsvc.get('ProfD',Components.interfaces.nsIFile).path,'literature-flow-v1');
     await IOUtils.makeDirectory(PathUtils.join(dir,'responses'),{ignoreExisting:true,permissions:0o700});
-    pack=JSON.parse(await Zotero.File.getContentsAsync(rootURI+'content/contracts/legacy.json'));
+    const contractFile=await Zotero.HTTP.request('GET',rootURI+'content/contracts/legacy.json');
+    pack=JSON.parse(contractFile.responseText);
     const state=await read(PathUtils.join(dir,'state.json'));
     engine=new C.Engine({now:()=>Date.now(),uuid,get,input,request,commit,
       save:s=>{const snapshot=JSON.parse(JSON.stringify(s));const p=writeChain.then(()=>atomic(PathUtils.join(dir,'state.json'),snapshot));writeChain=p.catch(()=>{});return p;},
@@ -171,7 +174,7 @@ var LiteratureFlow = (() => {
     // Zotero 9 provides one selected collection; Zotero 10 multi-select can pass collections.
     const collections=context?.collections || (context?.collection ? [context.collection] : [main.ZoteroPane.getSelectedCollection()].filter(Boolean));
     const args={api,selection:raw.map(i=>typeof i==='number'?i:i.id),collections:target==='main/library/collection'?collections.map(c=>typeof c==='number'?c:c.id):[]};
-    const win=main.openDialog('chrome://zotero-literature-flow/content/panel.xhtml','','chrome,centerscreen,resizable,width=1000,height=800',args);panels.add(win);
+    const win=main.openDialog('chrome://zotero-literature-flow/content/panel.xhtml','','chrome,dialog=no,modal=no,centerscreen,resizable,width=1000,height=800',args);panels.add(win);
   }
   async function selected(args,recursive){
     const raw=[...args.selection];

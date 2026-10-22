@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.0 预览版**：已生成 XPI，未安装到任何 Zotero 实例。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.1 预览版**：已在 P520 独立测试 profile 安装，与上游官方 AI Butler 5.1.0 共存测试。生产库未迁移。
 
-[下载 XPI](dist/zotero-literature-flow-0.3.0.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.0.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.3.1.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.1.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 
@@ -24,12 +24,12 @@
 
 ## 当前边界
 
-- 安装目标暂限制 **Zotero 9.0.x**；本机 9.0.6 的接口源码已核对，但**没有安装或实机运行验证**。这不是全版本兼容声明。
+- 安装目标暂限制 **Zotero 9.0.x**；已在 P520 **Zotero 9.0.1** 验证安装和运行；具体测试结果见验收记录。这不是全版本兼容声明。
 - 自动化默认关闭；只支持人为指定唯一执行端，没有跨设备选主。
 - UI 默认仅个人库；群组库、Zotero 10 多分类选择、保存后同步保真均未实机验收。
-- 现用提示词已冻结，尚无可成功读取的生产 Note 样例做回归；未知旧格式继续保守等待。
+- 现用提示词已冻结，已读取真实旧 Note 并修复多级合并笔记的识别；未知旧格式继续保守等待。
 - 暂不提供动态提示词包导入、自动 MinerU 服务调用、视觉输入或流式传输。当前使用已冻结的非流式请求契约。
-- 此预览包不提供自动更新 URL；不会通过旧版的 latest 更新清单投放。
+- Zotero 要求声明更新 URL；本预览通道提供空更新清单，不投放自动升级，也不使用旧版 latest 清单。
 
 ## 可复现构建
 

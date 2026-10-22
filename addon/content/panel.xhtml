@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
-<head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/><script src="panel.js" defer="defer"></script></head>
+<head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/></head>
 <body>
-<header><span class="eyebrow">LITERATURE FLOW · 0.3.0 PREVIEW</span><h1>文献工作流</h1><p>沿用现有 L1–L3 提示词。先检查范围，再补齐缺失。</p></header>
+<header><span class="eyebrow">LITERATURE FLOW · 0.3.1 PREVIEW</span><h1>文献工作流</h1><p>沿用现有 L1–L3 提示词。先检查范围，再补齐缺失。</p></header>
 <main>
 <section><h2>本机角色与连接</h2>
 <div class="grid"><label>本机角色<select id="role"><option value="reader-standby">阅读 / 待机（默认）</option><option value="executor">唯一执行端</option><option value="disabled">停用</option></select></label><label>模型名称<input id="model"/></label></div>
@@ -20,4 +20,4 @@
 <section><h2>本地队列</h2><p id="state"></p><pre id="tasks"></pre></section>
 <p id="message" role="status" aria-live="polite"></p>
 <footer>预览版本：构建与模拟测试不等于 Zotero 实机验收。普通 Note 在停用插件后仍可阅读。</footer>
-</main></body></html>
+</main><script src="panel.js"></script></body></html>

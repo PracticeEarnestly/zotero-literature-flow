@@ -71,3 +71,9 @@ test('HTTP 401 fails once; HTTP 503 retries with a bounded budget',async()=>{for
 test('single worker prevents concurrent inference',async()=>{const f=fixture();await f.e.plan(f.item,2);await Promise.all([f.e.step(),f.e.step(),f.e.step()]);assert.equal(f.calls,1);});
 test('pause clears old response pointer so resumed generation is not trapped in review',async()=>{const f=fixture();await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='ready_to_commit';t.response='old';await f.e.controls({paused:true});assert.equal(t.response,undefined);await f.e.controls({paused:false});await f.e.step();assert.equal(f.commits,1);});
 test('late failure from a cancelled generation cannot fail an explicitly retried task',async()=>{const f=fixture();await f.e.plan(f.item,1);f.p.request=async()=>{await f.e.cancel([f.item]);await f.e.plan(f.item,1);throw new Error('http-401');};await f.e.step();assert.equal(f.e.state.tasks[0].status,'queued');});
+test('combined legacy Note independently recognizes L1, L2 and L3 blocks',()=>{
+ const html='SUMMARY: A supported finding.\nDATA_AVAILABILITY: NotReported\nDATA_ACCESSION: Not reported\n'+['L2','L3'].map(s=>'['+s+'] '+(s==='L2'?'Evidence Card':'Deep Reading')+'\n'+pack.stages[s].sections.map(h=>h+'\nReal evidence.').join('\n')).join('\n');
+ const i=paper({notes:[{key:'COMBINED',html,tags:['AI-Summary']}]});
+ assert.deepEqual(C.stages.map(s=>C.inspect(i,pack)[s].state),['complete','complete','complete']);
+ const onlyL3={...i,notes:[{...i.notes[0],html:html.slice(html.indexOf('[L3]'))}]};assert.equal(C.inspect(onlyL3,pack).L1.state,'missing');assert.equal(C.inspect(onlyL3,pack).L2.state,'missing');
+});
