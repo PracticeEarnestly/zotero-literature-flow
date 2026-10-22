@@ -42,3 +42,11 @@
 4. 重启原 profile 前检查旧队列的 processing/pending 项。新测试生成的 Note 只在隔离库，无需从生产库删除。
 
 禁止把测试 profile 整体复制到另一台机器作为第二个 executor。正式迁移、跨设备同步和长时间稳定性仍需独立验收。
+
+## 最终运行状态
+
+测试实例保持打开，仅两个正式插件 active：LF 0.3.1 与上游 AI Butler 5.1.0。LF 为 reader-standby、paused、auto=false，测试任务已完成或取消。临时驱动已卸载。生产库与旧队列均通过独立读回校验，旧 XPI 保留在暂停目录。
+
+重新打开测试实例可运行测试根目录的 `launch-test.sh`。不要把它误认为生产库迁移。结果表与机器可读证据见 VALIDATION.md 和 p520-runtime.json。
+
+插件 manifest 与生命周期依据 [Zotero 开发文档](https://www.zotero.org/support/dev/zotero_7_for_developers)，安装可用性以本次 Zotero 9.0.1 实际读回为准。
