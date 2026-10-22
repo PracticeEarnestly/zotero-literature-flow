@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 var LiteratureFlow = (() => {
-  const C=LFCore, PREF='extensions.zotero.literatureFlowV1.config', LOGIN='chrome://literature-flow';
+  const C=LFCore, N=LFNotes, PREF='extensions.zotero.literatureFlowV1.config', LOGIN='chrome://literature-flow';
   let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve(),automationEpoch=0;
   const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set();
   const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],debounceMs:2500,intervalMs:5000,bindings:{}};
@@ -100,20 +100,47 @@ var LiteratureFlow = (() => {
     const choice=data.choices?.[0];
     return {text:choice?.message?.content,finish:choice?.finish_reason,model:data.model,usage:data.usage};
   }
-  async function commit(item,html,tags,valid) {
+  const noteSignature=item=>JSON.stringify(item.notes.map(n=>({id:n.id,key:n.key,html:n.html,tags:n.tags})).sort((a,b)=>a.id-b.id));
+  async function formattedBodies(item){
+    const result={};
+    for(const n of item.notes){
+      if(!n.tags.includes('LF:Note')||n.tags.includes('LF:Combined')||n.tags.includes('LF:Archive'))continue;
+      const record=C.marker(n),task=engine.state.tasks.find(t=>t.id===record?.task);if(!task?.response)continue;
+      try{
+        const e=await read(task.response);if(e?.contract!==record.prompt)continue;
+        const output=C.validate(e.response,record.stage,pack),body=N.singleBody(n).body;
+        const old=output.text.replace(/LF_RECORD_V1/g,'LF_QUOTED_RECORD_V1').split(/\r?\n/).map(l=>/^\s*#{1,6}\s/.test(l)?'<h3>'+C.escape(l.replace(/^\s*#{1,6}\s+/,''))+'</h3>':'<p>'+C.escape(l||' ')+'</p>').join('\n')+'<p>输入：'+C.escape(record.source)+'；文本分析，未发送图像。结构校验不等于科学事实验证。</p>';
+        const norm=s=>C.visible(s).replace(/\s+/g,' ').trim();
+        if(norm(body)===norm(old))result[n.key]=C.renderBody(output.text,record);
+      }catch{/* Unavailable source or user edits: preserve the existing HTML verbatim. */}
+    }
+    return result;
+  }
+  async function saveCombined(item,incoming,tags,valid,trashOld=false){
+    const snapshot=await get(item.id);if(!snapshot?.writable||snapshot.deleted||!valid())throw new Error('review-commit-ineligible');
+    const plan=N.assemble(snapshot,pack,engine.state.tasks,incoming,await formattedBodies(snapshot));
+    if(plan.target?.html===plan.html&&!plan.archive.length)return {key:plan.target.key,archived:0};
+    // Durable, private backup precedes any mutation; edits to other levels remain intact.
+    const backupDir=PathUtils.join(dir,'note-backups');await IOUtils.makeDirectory(backupDir,{ignoreExisting:true,permissions:0o700});
+    await atomic(PathUtils.join(backupDir,Date.now()+'-'+uuid()+'.json'),{parent:snapshot.key,scope:snapshot.scope,notes:snapshot.notes});
     let noteKey;
     await Zotero.DB.executeTransaction(async()=>{
-      const parent=await Zotero.Items.getAsync(item.id);
-      if(!valid() || parent.deleted || !allowed(parent))throw new Error('review-commit-ineligible');
-      // Ratings are read again inside the short write transaction.
-      const active=engine.state.tasks.find(t=>t.itemID===item.id && t.status==='ready_to_commit');
-      if(active?.mode==='automatic' && C.target(C.rating(parent.getField('extra'),parent.getTags().map(t=>t.tag),engine.state.tagAdapter))<C.stages.indexOf(active.stage)+1)throw new Error('review-rating-changed');
-      const note=new Zotero.Item('note');note.libraryID=parent.libraryID;note.parentID=parent.id;note.setNote(html);note.addTag('LF:Note');await note.save();noteKey=note.key;
+      const current=await get(item.id),parent=await Zotero.Items.getAsync(item.id);
+      if(!valid()||!current?.writable||current.deleted)throw new Error('review-commit-ineligible');
+      if(noteSignature(current)!==noteSignature(snapshot))throw new Error('review-note-changed');
+      const active=engine.state.tasks.find(t=>t.itemID===item.id&&t.status==='ready_to_commit');
+      if(incoming&&active?.mode==='automatic'&&C.target(C.rating(parent.getField('extra'),parent.getTags().map(t=>t.tag),engine.state.tagAdapter))<C.stages.indexOf(active.stage)+1)throw new Error('review-rating-changed');
+      const note=plan.target?await Zotero.Items.getAsync(plan.target.id):new Zotero.Item('note');
+      if(!plan.target){note.libraryID=parent.libraryID;note.parentID=parent.id;}
+      note.setNote(plan.html);if(!note.getTags().some(t=>t.tag==='LF:Note'))note.addTag('LF:Note');if(!note.getTags().some(t=>t.tag==='LF:Combined'))note.addTag('LF:Combined');await note.save();noteKey=note.key;
+      for(const id of plan.archive){const old=await Zotero.Items.getAsync(id);old.addTag('LF:Archive');if(trashOld)old.deleted=true;await old.save();}
       for(const tag of tags)if(!parent.hasTag(tag))parent.addTag(tag);
-      await parent.save();
+      if(tags.length)await parent.save();
     });
-    return noteKey;
+    for(const t of engine.state.tasks)if(t.status==='completed'&&plan.records.some(r=>r.task===t.id))t.noteKey=noteKey;
+    return {key:noteKey,archived:plan.archive.length};
   }
+  async function commit(item,html,tags,valid){return (await saveCombined(item,html,tags,valid)).key;}
   const responsePath=(id,g)=>PathUtils.join(dir,'responses',id+'-'+g+'.json');
   async function startup() {
     config={...defaults,...JSON.parse(Zotero.Prefs.get(PREF,true)||'{}')};
@@ -196,6 +223,28 @@ var LiteratureFlow = (() => {
         tasks.push({...Object.fromEntries(['id','parent','stage','status','reason','mode','revision','attempts'].map(k=>[k,t[k]])),canRevalidate:t.status==='failed'&&t.reason==='output-tags-json'&&!!t.response,title:p?.getField('title')||t.parent});
       }
       return {role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,baselineCount:Object.keys(engine.state.baseline).length,connectionReady:!!config.baseURL.trim()&&!!config.model.trim(),contract:pack.id,tasks};
+    },
+    async consolidate(args,recursive,trashOld=false){
+      if(engine.state.role!=='executor')throw new Error('请在执行设备上整合笔记');
+      const items=await selected(args,recursive),result=[];
+      return engine.serial(async()=>{
+        for(const item of items){if(!item.writable||item.deleted)continue;
+          result.push({parent:item.key,...await saveCombined(item,null,[],()=>engine.state.role==='executor'&&!stopped,trashOld)});
+        }
+        await engine.save();return result;
+      });
+    },
+    async markdown(args,recursive){
+      const items=await selected(args,recursive),notes=[];
+      for(const item of items){const matches=item.notes.filter(n=>n.tags.includes('LF:Combined')&&!n.tags.includes('LF:Archive'));if(matches.length>1)throw new Error('请先核对重复的综合笔记');if(matches.length)notes.push(await Zotero.Items.getAsync(matches[0].id));}
+      if(!notes.length)throw new Error('当前选择没有综合笔记，请先整合已有结果');
+      const translation=new Zotero.Translate.Export();translation.setItems(notes);translation.setTranslator('1412e9e2-51e1-42ec-aa35-e036a895534b');await translation.translate();
+      return translation.string.replace(/^LF\\?_RECORD\\?_V1\s+\{[^\n]*\}\s*$/gm,'').replace(/^#{1,6}\s+生成记录\s*$/gm,'').replace(/^### \[Literature Flow\] 综合阅读/gm,'# 综合阅读').replace(/^### \[(L[123])\]/gm,'## [$1]').replace(/^#{4,6} /gm,s=>s.slice(1)).trim()+'\n';
+    },
+    async exportMarkdown(win,args,recursive){
+      const text=await api.markdown(args,recursive),{FilePicker}=ChromeUtils.importESModule('chrome://zotero/content/modules/filePicker.mjs');
+      const fp=new FilePicker();fp.init(win,'导出综合笔记 Markdown',fp.modeSave);fp.appendFilter('Markdown','*.md');fp.defaultString='literature-flow-notes.md';
+      if(await fp.show()!==fp.returnCancel)await IOUtils.writeUTF8(fp.file,text);
     },
     async taskAction(ids,action){return engine.taskAction(ids,action);},
     async view(args,recursive){

@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.5**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.4.0**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-[下载 XPI](dist/zotero-literature-flow-0.3.5.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.5.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.4.0.xpi) · [SHA-256](dist/zotero-literature-flow-0.4.0.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 
@@ -12,7 +12,10 @@
 - Extra `rate: 2–4` 对应 L2，`rate: 5` 对应 L3；L1、L2、L3 按前置结果顺序执行。
 - 只读检查、标签修复、失败重试、取消、明确重生成和旧 Note 保护副本。
 - 分类可包含子分类；条目、附件与 Note 会归一化到父文献并去重。
-- 所有写操作先显示范围预览；重生成保留旧版本。
+- 所有写操作先显示范围预览；重生成前保存本机私有备份。
+- 每篇文献维护一条综合笔记，依次追加 L1 概览、L2 证据卡、L3 深度阅读。
+- “整合已有笔记”复用历史结果，不调用模型；旧 LF 分散笔记保留并标记 `LF:Archive`。
+- “导出综合笔记 Markdown”将当前综合笔记保存为 `.md`，包含人工补充内容。
 
 默认只阅读，不会调用模型或修改文献库。首次在“高级设置”填写连接，点击“保存并开启”，确认本机是唯一执行设备。日常只使用顶部的“暂停自动处理 / 继续自动处理”；暂停也会暂停手动队列。首次开启只记录当前文献，恢复或重新开启沿用原历史记录，后续仅新增或实际评分变化产生自动任务。
 
@@ -24,7 +27,9 @@
 
 冻结了 P520 AI Butler **5.1.0.3** 的现用三份提示词及 hash，没有把 L3 改成逐图解读。三层都需要全文。可使用明确绑定到主文 PDF 的已保存 MinerU Markdown/HTML，或页数覆盖完整的 Zotero PDF 索引。缺文件、部分索引、多主文候选、无法确认来源或全文过长均等待处理。
 
-结果保存为普通子 Note，使用 `LF:Note` 与可同步的可见任务标记；不使用 Butler 的笔记归属标签，也不输出 h1/h2。程序维护 `AI:L1/L2/L3` 和既有允许值的 `Evidence:E0–E5`、`Data:` 标签，不更改人工评分。未知旧格式、单独完成标签或冲突结果均待核对。
+结果以 Markdown 编排，渲染为 Zotero 可直接阅读和编辑的普通子 Note。支持标题、加粗、列表、引用、代码块和表格；后续级别更新在同一条综合笔记中，其他级别的正文和人工补充保持原样。使用 `LF:Note` 与可同步的可见任务标记；不使用 Butler 的笔记归属标签，也不输出 h1/h2。程序维护 `AI:L1/L2/L3` 和既有允许值的 `Evidence:E0–E5`、`Data:` 标签，不更改人工评分。未知旧格式、单独完成标签或冲突结果均待核对。
+
+0.4.0 的合并、原文保护和原生 Markdown 导出实测见 [综合笔记验证](docs/COMBINED_NOTES.md)。
 
 ## 当前边界
 
@@ -37,7 +42,7 @@
 
 ## 可复现构建
 
-需要现有 Node.js 和 Python 3；零 npm 运行时依赖，不需要创建新环境。
+需要现有 Node.js 和 Python 3；无需安装 npm 运行时依赖（包内包含 MIT 许可的 markdown-it 14.1.0），不需要创建新环境。
 
 ```sh
 npm ci --ignore-scripts

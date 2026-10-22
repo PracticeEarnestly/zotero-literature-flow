@@ -1,5 +1,7 @@
 # 验收记录 · 2026-10-22
 
+最新 0.4.0 合并笔记、Markdown 与 75 项测试验证见 [COMBINED_NOTES.md](COMBINED_NOTES.md)。以下为历史版本记录。
+
 以下记录 0.3.1 在 P520 Zotero 9.0.1 独立 profile 的模型实测，以及和未经修改的上游 AI Butler 5.1.0 共存测试。0.3.3 正式迁移和新增历史审计见 [P520_PRODUCTION.md](P520_PRODUCTION.md)。隔离测试详情见 [P520_TEST.md](P520_TEST.md)。
 
 ## 本地验证

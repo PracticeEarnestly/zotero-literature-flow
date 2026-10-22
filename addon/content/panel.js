@@ -4,7 +4,7 @@ let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBus
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
-const reasonLabels={'output-tags-json':'标签格式无法解析；可先检查已存结果','checking-saved-response':'正在检查已存结果（不调用模型）','review-saved-response-missing':'已存结果缺失，需核对后重新请求','waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','explicit-retry':'等待重试'};
+const reasonLabels={'review-combined-note-format':'综合笔记结构已改变，请先核对','review-note-changed':'笔记同时被修改，已停止写入','review-conflicting-notes':'存在重复或冲突的笔记，请核对','output-tags-json':'标签格式无法解析；可先检查已存结果','checking-saved-response':'正在检查已存结果（不调用模型）','review-saved-response-missing':'已存结果缺失，需核对后重新请求','waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','explicit-retry':'等待重试'};
 const labels={complete:'完成',missing:'缺失',review:'待核对',conflict:'冲突',deleted:'结果已删除'};
 function message(text){$('message').textContent=text;}
 async function refresh(){
@@ -119,6 +119,8 @@ for(const action of ['fill','repair','retry','cancel','regenerate','protect'])bu
 button('bind',async()=>{if(confirm('确认该全文来自所选主文 PDF，并且正文内容完整？仅发送文字，不发送图像。')){await api.bind(args,$('pdfKey').value.trim(),$('markdownKey').value.trim());message('来源绑定已保存');}});
 button('exportConfig',()=>api.exportConfig(window));
 button('importConfig',async()=>{if(confirm('导入后重置为待机，清除本机端点、密钥与来源绑定。继续？')){await api.importConfig(window);await loadSettings();message('已导入并重置为待机');}});
+button('consolidate',async()=>{await refresh();if(confirm(`将当前 ${latest.items.length} 篇文献的已有有效结果整合为每篇一条综合笔记？原有分散 LF 笔记保留并标记为历史备份，不调用模型。`)){const r=await api.consolidate(args,$('recursive').checked);message(`已整合 ${r.length} 篇。后续结果更新在同一条综合笔记中；原始笔记已备份。`);}});
+button('exportMarkdown',()=>api.exportMarkdown(window,args,$('recursive').checked));
 button('report',()=>api.exportReport(window,args,$('recursive').checked));
 async function loadSettings(){await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;}
 loadSettings().then(()=>{queueTimer=setInterval(()=>refreshQueue().catch(e=>message(e.message)),3000);}).catch(e=>message(e.message));

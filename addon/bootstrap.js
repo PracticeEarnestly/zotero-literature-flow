@@ -10,7 +10,7 @@ async function startup({rootURI}) {
     .registerChrome(Services.io.newURI(rootURI + 'manifest.json'), [['content','zotero-literature-flow',rootURI+'content/']]);
   lfScope={Zotero,Services,ChromeUtils,Components,IOUtils,PathUtils,fetch,TextEncoder,AbortController,setTimeout,clearTimeout,rootURI};
   try {
-    for(const file of ['core.js','workflow.js']) Services.scriptloader.loadSubScript(rootURI+'content/'+file,lfScope);
+    for(const file of ['lib/markdown-it.min.js','core.js','notes.js','workflow.js']) Services.scriptloader.loadSubScript(rootURI+'content/'+file,lfScope);
     await lfScope.LiteratureFlow.startup();
   } catch(e) {await shutdown();throw e;}
 }

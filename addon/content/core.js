@@ -77,18 +77,22 @@ var LFCore = (() => {
     }
     return {text, tags};
   }
-  function marker(note) {
-    if (!(note.tags || []).includes('LF:Note')) return null;
-    const match = visible(note.html).match(/^LF_RECORD_V1 (\{[^\n]+\})\s*$/m);
-    if (!match) return null;
-    try {
-      const m = JSON.parse(match[1]);
-      return stages.includes(m.stage) && Number.isInteger(m.revision) && m.revision >= 0 && typeof m.task === 'string' && m.task && m.parent && m.scope ? m : null;
-    } catch { return null; }
+  function records(note) {
+    if (!(note.tags || []).includes('LF:Note') || (note.tags || []).includes('LF:Archive')) return [];
+    const matches=[...visible(note.html).matchAll(/^LF_RECORD_V1 (\{[^\n]+\})\s*$/gm)];
+    try{
+      const result=matches.map(m=>JSON.parse(m[1]));
+      if(result.some(m=>!stages.includes(m.stage)||!Number.isInteger(m.revision)||m.revision<0||typeof m.task!=='string'||!m.task||!m.parent||!m.scope))return [];
+      if(new Set(result.map(m=>m.stage)).size!==result.length)return [];
+      return result;
+    }catch{return [];}
   }
+  function marker(note) {return records(note)[0] || null;}
+  const stageIdentity=v=>v.note.record ? 'lf-task:'+v.note.record.task+':'+v.note.record.revision : v.note.key;
+  const dependencyMatches=(v,id)=>stageIdentity(v)===id || v.note.key===id || v.note.record?.originKey===id;
   function inspect(item, pack, history = []) {
     const result = {};
-    const notes = item.notes || [];
+    const notes = (item.notes || []).filter(n=>!(n.tags||[]).includes('LF:Archive'));
     const legacy = new Map(notes.map(n => [n.key,legacyStages(n,pack)]));
     const unknown = notes.some(n => !marker(n) && (/\[L[123]\]|AI_BUTLER|DATA_AVAILABILITY/.test(visible(n.html)) || (n.tags || []).some(t => ['LF:Note','AI-Generated','AI-Summary','AI-DeepRead','AI-Butler-Chat','Literature Flow'].includes(t))) && !legacy.get(n.key).length);
     for (const stage of stages) {
@@ -98,9 +102,8 @@ var LFCore = (() => {
         visible(n.html).includes('['+stage+']') ||
         stage === 'L1' && (n.tags || []).some(t => ['AI-Generated','AI-Summary'].includes(t))
       ));
-      const found = notes.map(n => ({...n, record:marker(n)})).filter(n => n.record ? n.record.stage === stage && n.record.parent === item.key && n.record.scope === item.scope : legacyStages(n,pack).includes(stage));
-      const superseded = new Set(found.flatMap(n => n.record?.previous || []));
-      const active = found.filter(n => !superseded.has(n.key));
+      const found = notes.map(n => ({...n, record:records(n).find(r=>r.stage===stage)})).filter(n => n.record ? n.record.stage === stage && n.record.parent === item.key && n.record.scope === item.scope : legacyStages(n,pack).includes(stage));
+      const active = found.filter(n => !found.some(other=>other.key!==n.key&&(other.record?.previous||[]).includes(n.key)));
       const known = history.filter(t => t.parent === item.key && t.scope === item.scope && t.stage === stage && t.status === 'completed');
       const deleted = !active.length && known.some(t => t.noteKey && !notes.some(n => n.key === t.noteKey));
       result[stage] = active.length > 1 ? {state:'conflict',notes:active} : active.length === 1 ? {state:'complete', note:active[0], shared:!active[0].record} : {state:deleted ? 'deleted' : unknown || partial || item.tags.includes('AI:' + stage) ? 'review' : 'missing'};
@@ -125,10 +128,19 @@ var LFCore = (() => {
     return [...new Set(levels)];
   }
   function legacyStage(note,pack){return ['L3','L2','L1'].find(s=>legacyStages(note,pack).includes(s)) || null;}
+  const markdownFactory=typeof markdownit!=='undefined' ? markdownit : typeof require==='function' ? require('./lib/markdown-it.min.js') : null;
+  const markdown=markdownFactory({html:false,breaks:true,linkify:false,typographer:false});
+  markdown.validateLink=url=>/^(https?:\/\/|mailto:)/i.test(url);
+  markdown.renderer.rules.image=(tokens,i)=>escape('[图像：'+tokens[i].content+']');
+  markdown.core.ruler.push('lf_heading_depth',state=>{
+    const levels=state.tokens.filter(t=>t.type==='heading_open').map(t=>Number(t.tag.slice(1))),base=Math.min(...levels);
+    for(const t of state.tokens)if(/^heading_(open|close)$/.test(t.type))t.tag='h'+Math.min(6,4+Number(t.tag.slice(1))-base);
+  });
+  function markdownHTML(text){return markdown.render(String(text).replace(/LF_RECORD_V1/g,'LF_QUOTED_RECORD_V1'));}
+  function renderBody(text,record){return markdownHTML(text)+'<p>输入：'+escape(record.source)+'；文本分析，未发送图像。结构校验不等于科学事实验证。</p>';}
+  const recordHTML=record=>'<p>'+escape('LF_RECORD_V1 '+JSON.stringify(record))+'</p>';
   function render(text, record, title) {
-    // No raw HTML, images, links or h1/h2 from the model can acquire Butler ownership.
-    const body = text.replace(/LF_RECORD_V1/g, 'LF_QUOTED_RECORD_V1').split(/\r?\n/).map(l => /^\s*#{1,6}\s/.test(l) ? '<h3>' + escape(l.replace(/^\s*#{1,6}\s+/,'')) + '</h3>' : '<p>' + escape(l || ' ') + '</p>').join('\n');
-    return '<div><h3>[Literature Flow] ' + record.stage + ' · ' + escape(title) + '</h3>' + body + '<p>输入：' + escape(record.source) + '；文本分析，未发送图像。结构校验不等于科学事实验证。</p><p>' + escape('LF_RECORD_V1 ' + JSON.stringify(record)) + '</p></div>';
+    return '<div><h3>[Literature Flow] '+record.stage+' · '+escape(title)+'</h3>'+renderBody(text,record)+recordHTML(record)+'</div>';
   }
   class Engine {
     constructor(port, pack, state) {
@@ -230,7 +242,7 @@ var LFCore = (() => {
         let item=await this.p.get(t.itemID);
         if(!this.valid(t,item,generation)) {t.status='cancelled';t.reason='eligibility-lost';await this.save();return true;}
         let found=inspect(item,this.pack,this.state.tasks);
-        const matches=(item.notes||[]).filter(n=>marker(n)?.task===t.id);
+        const matches=(item.notes||[]).filter(n=>records(n).some(r=>r.task===t.id));
         if(matches.length===1) {t.noteKey=matches[0].key;t.status='completed';await this.save();return true;}
         if(matches.length>1) throw new Error('review-duplicate-task-notes');
         if(found[t.stage].state==='complete' && t.revision===0) {t.noteKey=found[t.stage].note.key;t.status='completed';await this.save();return true;}
@@ -247,7 +259,7 @@ var LFCore = (() => {
           if(!this.valid(t,await this.p.get(t.itemID),generation)) return true;
           t.status='running';t.attempts++;t.reason='';await this.save();
           const response=await this.p.request(item,t.stage,input,this.pack);
-          envelope={response,input,generation,contract:this.pack.id,dependencies:dependencies.map(s=>found[s].note.key)};
+          envelope={response,input,generation,contract:this.pack.id,dependencies:dependencies.map(s=>stageIdentity(found[s]))};
           // Persist before validation. A startup recovery also discovers this deterministic path.
           const path=await this.p.writeResponse(t.id,generation,envelope);
           if(!this.valid(t,await this.p.get(t.itemID),generation)) return true;
@@ -259,8 +271,8 @@ var LFCore = (() => {
           item=await this.p.get(t.itemID);
           if(!this.valid(t,item,generation))return;
           found=inspect(item,this.pack,this.state.tasks);
-          if((item.notes||[]).some(n=>marker(n)?.task===t.id)) {t.status='completed';t.noteKey=item.notes.find(n=>marker(n)?.task===t.id).key;await this.save();return;}
-          if(dependencies.some((s,i)=>found[s].state!=='complete' || found[s].note.key!==envelope.dependencies[i])) throw new Error('review-dependency-changed');
+          if((item.notes||[]).some(n=>records(n).some(r=>r.task===t.id))) {t.status='completed';t.noteKey=item.notes.find(n=>records(n).some(r=>r.task===t.id)).key;await this.save();return;}
+          if(dependencies.some((s,i)=>found[s].state!=='complete' || !dependencyMatches(found[s],envelope.dependencies[i]))) throw new Error('review-dependency-changed');
           if(t.revision===0 && found[t.stage].state!=='missing' || t.revision>0 && !['complete','deleted','missing'].includes(found[t.stage].state)) throw new Error('review-concurrent-note');
           const currentInput=await this.p.input(item,t.stage,this.pack);
           if(currentInput.hash!==envelope.input.hash) throw new Error('review-source-changed');
@@ -292,6 +304,6 @@ var LFCore = (() => {
       await this.save();
     }
   }
-  return {stages,escape,visible,rating,target,validate,marker,inspect,legacyStage,legacyStages,render,Engine,checkSections};
+  return {stages,escape,visible,rating,target,validate,marker,records,stageIdentity,dependencyMatches,inspect,legacyStage,legacyStages,render,renderBody,recordHTML,markdownHTML,Engine,checkSections};
 })();
 if (typeof module !== 'undefined') module.exports = LFCore;

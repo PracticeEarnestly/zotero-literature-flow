@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/></head>
 <body>
-<header><span class="eyebrow">LITERATURE FLOW · 0.3.5 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
+<header><span class="eyebrow">LITERATURE FLOW · 0.4.0 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
 <main>
 <section id="automationSection" aria-labelledby="automationHeading">
 <div class="automation-top"><div><h2 id="automationHeading">自动处理文献</h2><p id="automationStatus" class="automation-status" role="status">正在读取状态…</p><p id="automationHint" class="hint"></p></div><button id="automationToggle" class="primary" disabled="disabled">正在读取…</button></div>
@@ -29,7 +29,7 @@
 </section>
 <section><h2>当前选择</h2><label class="inline"><input id="recursive" type="checkbox"/> 包含子分类</label>
 <div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选文献的任务</button></div>
-<div class="buttons"><button id="regenerate">重新生成指定级别…</button><button id="protect">创建旧 Note 保护副本…</button><button id="report">导出只读报告</button></div>
+<div class="buttons"><button id="regenerate">重新生成指定级别…</button><button id="protect">创建旧 Note 保护副本…</button><button id="report">导出只读报告</button><button id="consolidate">整合已有笔记（不调用模型）</button><button id="exportMarkdown">导出综合笔记 Markdown</button></div>
 <p id="summary" class="hint"></p><div class="tablewrap"><table><thead><tr><th>文献</th><th>评分</th><th>L1 / L2 / L3</th><th>输入</th></tr></thead><tbody id="items"></tbody></table></div>
 <details><summary>确认主文 PDF 与已保存的 MinerU 文本</summary><p class="hint">仅单篇选择可绑定。请先检查 Markdown 确实来自该 PDF 且完整；本版本只发送文字。</p><pre id="attachments"></pre><div class="grid"><label>PDF 附件 key<input id="pdfKey"/></label><label>Markdown/HTML 附件 key（可留空）<input id="markdownKey"/></label></div><button id="bind">确认来源并绑定</button></details>
 </section>
