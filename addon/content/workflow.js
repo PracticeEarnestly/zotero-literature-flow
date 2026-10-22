@@ -190,6 +190,14 @@ var LiteratureFlow = (() => {
     return await fp.show()===fp.returnCancel?null:fp.file;
   }
   const api={
+    async queue(){
+      const tasks=[];
+      for(const t of engine.state.tasks){const p=await Zotero.Items.getAsync(t.itemID);
+        tasks.push({...Object.fromEntries(['id','parent','stage','status','reason','mode','revision','attempts'].map(k=>[k,t[k]])),title:p?.getField('title')||t.parent});
+      }
+      return {role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id,tasks};
+    },
+    async taskAction(ids,action){return engine.taskAction(ids,action);},
     async view(args,recursive){
       const items=await selected(args,recursive);
       const report=[];

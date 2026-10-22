@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/></head>
 <body>
-<header><span class="eyebrow">LITERATURE FLOW · 0.3.1 PREVIEW</span><h1>文献工作流</h1><p>沿用现有 L1–L3 提示词。先检查范围，再补齐缺失。</p></header>
+<header><span class="eyebrow">LITERATURE FLOW · 0.3.3 PREVIEW</span><h1>文献工作流</h1><p>沿用现有 L1–L3 提示词。先检查范围，再补齐缺失。</p></header>
 <main>
 <section><h2>本机角色与连接</h2>
 <div class="grid"><label>本机角色<select id="role"><option value="reader-standby">阅读 / 待机（默认）</option><option value="executor">唯一执行端</option><option value="disabled">停用</option></select></label><label>模型名称<input id="model"/></label></div>
@@ -12,12 +12,17 @@
 <div class="buttons"><button id="auto">建立当前库基线并启用自动化</button><button id="autoOff">关闭自动化</button><button id="exportConfig">导出共享配置</button><button id="importConfig">导入配置（重置待机）</button></div>
 </section>
 <section><h2>当前选择</h2><label class="inline"><input id="recursive" type="checkbox"/> 包含子分类</label>
-<div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选任务</button></div>
+<div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选文献的任务</button></div>
 <div class="buttons"><button id="regenerate">重新生成指定级别…</button><button id="protect">创建旧 Note 保护副本…</button><button id="report">导出只读报告</button></div>
 <p id="summary" class="hint"></p><div class="tablewrap"><table><thead><tr><th>文献</th><th>评分</th><th>L1 / L2 / L3</th><th>输入</th></tr></thead><tbody id="items"></tbody></table></div>
 <details><summary>确认主文 PDF 与已保存的 MinerU 文本</summary><p class="hint">仅单篇选择可绑定。请先检查 Markdown 确实来自该 PDF 且完整；本版本只发送文字。</p><pre id="attachments"></pre><div class="grid"><label>PDF 附件 key<input id="pdfKey"/></label><label>Markdown/HTML 附件 key（可留空）<input id="markdownKey"/></label></div><button id="bind">确认来源并绑定</button></details>
 </section>
-<section><h2>本地队列</h2><p id="state"></p><pre id="tasks"></pre></section>
+<section id="queueSection"><h2>任务队列</h2><p id="state"></p>
+<div class="buttons"><label class="inline" for="taskFilter">状态<select id="taskFilter"><option value="all">全部任务</option><option value="active">未结束</option><option value="running">正在处理</option><option value="waiting">等待中</option><option value="failed">失败</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></label><label class="inline" for="taskSearch">搜索<input id="taskSearch" type="search" placeholder="文献标题或条目 key"/></label><button id="queueRefresh">刷新任务</button></div>
+<div class="buttons"><button id="cancelTasks">取消勾选任务</button><button id="retryTasks">重试勾选的失败任务</button><span id="taskCount" role="status"></span></div>
+<p class="hint">每 3 秒自动刷新。取消仅影响勾选任务，已有笔记保留；重试可能重新调用模型。</p>
+<div class="tablewrap queuewrap"><table id="taskTable"><caption class="sr-only">本机 Literature Flow 任务及操作</caption><thead><tr><th><input id="selectTasks" type="checkbox" aria-label="勾选当前显示的可操作任务"/></th><th>文献</th><th>级别</th><th>状态</th><th>来源</th><th>尝试</th><th>说明</th><th>操作</th></tr></thead><tbody id="tasks"></tbody></table></div>
+</section>
 <p id="message" role="status" aria-live="polite"></p>
 <footer>预览版本：构建与模拟测试不等于 Zotero 实机验收。普通 Note 在停用插件后仍可阅读。</footer>
 </main><script src="panel.js"></script></body></html>

@@ -29,3 +29,9 @@ test('host adapter shared export excludes role, endpoints, credentials, bindings
 test('host adapter import resets to standby and clears connection settings',async()=>{const r=runtime();await r.start();await r.configure();r.files.set('/export.json',JSON.stringify({schema:1,model:'imported',role:'executor',baseURL:'http://evil.test'}));await r.args.api.importConfig({});const v=await r.args.api.view(r.args,false);assert.equal(v.role,'reader-standby');assert.equal(v.paused,true);assert.equal(v.config.baseURL,'');assert.equal(v.config.model,'imported');});
 test('host adapter unknown/partial PDF indexing waits without an inference request',async()=>{const r=runtime();r.Zotero.Fulltext.getPages=async()=>({indexedPages:5,total:10});await r.start();await r.configure();await r.args.api.action(r.args,false,'fill',1);await r.tick();assert.equal(r.requests,0);const v=await r.args.api.view(r.args,false);assert.equal(v.tasks[0].status,'waiting');assert.equal(v.tasks[0].reason,'waiting-fulltext-coverage');});
 test('host adapter corrupt state fails closed and preserves original bytes',async()=>{const r=runtime();const p='/profile/literature-flow-v1/state.json';r.files.set(p,'corrupt');await assert.rejects(()=>r.start(),/corrupt-local-state/);assert.equal(r.files.get(p),'corrupt');assert.equal(r.saves,0);});
+
+test('host task table resolves titles and cancels a single stage without inference',async()=>{
+ const r=runtime();await r.start();await r.configure();await r.args.api.action(r.args,false,'fill',2);
+ const q=await r.args.api.queue();assert.equal(q.tasks[0].title,'Test paper');assert.equal(q.tasks.length,2);assert.equal(r.requests,0);
+ assert.equal(await r.args.api.taskAction([q.tasks[1].id],'cancel'),1);const after=await r.args.api.queue();assert.equal(after.tasks[0].status,'queued');assert.equal(after.tasks[1].status,'cancelled');assert.equal(r.requests,0);assert.equal(r.saves,0);
+});

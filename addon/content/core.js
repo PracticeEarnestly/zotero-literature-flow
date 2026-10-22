@@ -68,14 +68,21 @@ var LFCore = (() => {
   function inspect(item, pack, history = []) {
     const result = {};
     const notes = item.notes || [];
-    const unknown = notes.some(n => !marker(n) && (/\[L[123]\]|AI_BUTLER|DATA_AVAILABILITY/.test(visible(n.html)) || (n.tags || []).some(t => ['LF:Note','AI-Generated','AI-Summary','AI-DeepRead','Literature Flow'].includes(t))) && !legacyStages(n,pack).length);
+    const legacy = new Map(notes.map(n => [n.key,legacyStages(n,pack)]));
+    const unknown = notes.some(n => !marker(n) && (/\[L[123]\]|AI_BUTLER|DATA_AVAILABILITY/.test(visible(n.html)) || (n.tags || []).some(t => ['LF:Note','AI-Generated','AI-Summary','AI-DeepRead','AI-Butler-Chat','Literature Flow'].includes(t))) && !legacy.get(n.key).length);
     for (const stage of stages) {
+      // A valid L2 block does not prove that an older summary/L3 block is absent.
+      // Keep partial mixed Notes under review instead of regenerating their contents.
+      const partial = notes.some(n => !marker(n) && !legacy.get(n.key).includes(stage) && (
+        visible(n.html).includes('['+stage+']') ||
+        stage === 'L1' && (n.tags || []).some(t => ['AI-Generated','AI-Summary'].includes(t))
+      ));
       const found = notes.map(n => ({...n, record:marker(n)})).filter(n => n.record ? n.record.stage === stage && n.record.parent === item.key && n.record.scope === item.scope : legacyStages(n,pack).includes(stage));
       const superseded = new Set(found.flatMap(n => n.record?.previous || []));
       const active = found.filter(n => !superseded.has(n.key));
       const known = history.filter(t => t.parent === item.key && t.scope === item.scope && t.stage === stage && t.status === 'completed');
       const deleted = !active.length && known.some(t => t.noteKey && !notes.some(n => n.key === t.noteKey));
-      result[stage] = active.length > 1 ? {state:'conflict',notes:active} : active.length === 1 ? {state:'complete', note:active[0], shared:!active[0].record} : {state:deleted ? 'deleted' : unknown || item.tags.includes('AI:' + stage) ? 'review' : 'missing'};
+      result[stage] = active.length > 1 ? {state:'conflict',notes:active} : active.length === 1 ? {state:'complete', note:active[0], shared:!active[0].record} : {state:deleted ? 'deleted' : unknown || partial || item.tags.includes('AI:' + stage) ? 'review' : 'missing'};
     }
     return result;
   }
@@ -126,7 +133,7 @@ var LFCore = (() => {
     }
     async observe(item) {
       return this.serial(async () => {
-        if (!this.canRun() || !this.state.auto || !this.state.enabledAt) return;
+        if (!this.canRun() || !this.state.auto || !this.state.enabledAt || !item.writable || item.deleted) return;
         const k=item.scope+'/'+item.key, r=rating(item.extra,item.tags,this.state.tagAdapter), old=this.state.baseline[k];
         this.state.baseline[k]=r;
         const changed=old && (old.value !== r.value || old.status !== r.status);
@@ -167,6 +174,22 @@ var LFCore = (() => {
         const keys=new Set(items.map(i=>i.scope+'/'+i.key));
         for(const t of this.state.tasks) if(keys.has(t.scope+'/'+t.parent) && t.status!=='completed') {t.status='cancelled';t.reason='user';t.generation++;}
         await this.save();
+      });
+    }
+    async taskAction(ids, action) {
+      if (!['cancel','retry'].includes(action)) throw new Error('无效的任务操作');
+      return this.serial(async()=>{
+        if(action==='retry' && !this.canRun())throw new Error('恢复执行队列后才能重试');
+        const selected=new Set(ids);let count=0;
+        for(const t of this.state.tasks){
+          if(!selected.has(t.id))continue;
+          if(action==='cancel' && !['completed','cancelled'].includes(t.status)){
+            t.status='cancelled';t.reason='user';t.generation++;count++;
+          }else if(action==='retry' && t.status==='failed'){
+            t.status='queued';t.reason='explicit-retry';t.generation++;t.attempts=0;t.nextAt=0;delete t.response;count++;
+          }
+        }
+        await this.save();return count;
       });
     }
     valid(t,item,generation) {

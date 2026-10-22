@@ -1,5 +1,7 @@
 # P520 隔离测试与回滚 · 2026-10-22
 
+本文件保留隔离测试结束时的历史状态。之后的正式迁移状态以 [P520_PRODUCTION.md](P520_PRODUCTION.md) 为准。
+
 用户明确授权：先暂停原方案，再测试 Literature Flow + 上游官方 AI Butler。
 
 ## 隔离与备份

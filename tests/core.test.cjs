@@ -75,5 +75,37 @@ test('combined legacy Note independently recognizes L1, L2 and L3 blocks',()=>{
  const html='SUMMARY: A supported finding.\nDATA_AVAILABILITY: NotReported\nDATA_ACCESSION: Not reported\n'+['L2','L3'].map(s=>'['+s+'] '+(s==='L2'?'Evidence Card':'Deep Reading')+'\n'+pack.stages[s].sections.map(h=>h+'\nReal evidence.').join('\n')).join('\n');
  const i=paper({notes:[{key:'COMBINED',html,tags:['AI-Summary']}]});
  assert.deepEqual(C.stages.map(s=>C.inspect(i,pack)[s].state),['complete','complete','complete']);
- const onlyL3={...i,notes:[{...i.notes[0],html:html.slice(html.indexOf('[L3]'))}]};assert.equal(C.inspect(onlyL3,pack).L1.state,'missing');assert.equal(C.inspect(onlyL3,pack).L2.state,'missing');
+ const onlyL3={...i,notes:[{...i.notes[0],html:html.slice(html.indexOf('[L3]'))}]};assert.equal(C.inspect(onlyL3,pack).L1.state,'review');assert.equal(C.inspect(onlyL3,pack).L2.state,'missing');
+});
+test('partial mixed legacy summary and L3 stay under review even when L2 is complete',async()=>{
+ const html='An old summary without a DATA_AVAILABILITY field.\n[L2] Evidence Card\n'+pack.stages.L2.sections.map(s=>s+'\nEvidence body.').join('\n')+'\n[L3] Deep Reading\nIncomplete older analysis.';
+ const f=fixture(paper({notes:[{key:'MIXED',html,tags:['AI-Generated']}]}));
+ assert.deepEqual(C.stages.map(s=>C.inspect(f.item,pack)[s].state),['review','complete','review']);
+ await f.e.plan(f.item,3);assert.equal(f.e.state.tasks.length,0);assert.equal(f.calls,0);
+});
+test('historical Butler chat summaries are held, while unrelated human notes remain eligible',async()=>{
+ const f=fixture(paper({notes:[{key:'CHAT',html:'Full-paper summary from a previous conversation.',tags:['AI-Butler-Chat']}]}));
+ await f.e.baseline([f.item]);f.e.state.auto=true;f.item.extra='rate: 4';await f.e.observe(f.item);assert.equal(f.e.state.tasks.length,0);
+ f.item.notes[0].tags=[];await f.e.plan(f.item,1);assert.equal(f.e.state.tasks.length,1);
+});
+
+test('task-table cancel targets exact IDs, works while paused, and preserves completed notes',async()=>{
+ const f=fixture();await f.e.plan(f.item,3);await f.e.step();const [l1,l2,l3]=f.e.state.tasks;
+ await f.e.controls({paused:true});const count=await f.e.taskAction([l1.id,l2.id],'cancel');
+ assert.equal(count,1);assert.equal(l1.status,'completed');assert.equal(l2.status,'cancelled');assert.equal(l3.status,'waiting');assert.equal(f.item.notes.length,1);
+});
+test('task-table cancellation during inference invalidates the response without affecting another stage',async()=>{
+ const f=fixture();await f.e.plan(f.item,2);const [l1,l2]=f.e.state.tasks;
+ f.p.request=async()=>{await f.e.taskAction([l1.id],'cancel');return output('L1');};await f.e.step();
+ assert.equal(l1.status,'cancelled');assert.equal(l2.status,'queued');assert.equal(f.commits,0);
+});
+test('task-table retry only revives selected failed tasks and requires an active executor',async()=>{
+ const f=fixture();await f.e.plan(f.item,2);const [l1,l2]=f.e.state.tasks;l1.status='failed';l1.response='old-response';
+ await f.e.controls({paused:true});await assert.rejects(()=>f.e.taskAction([l1.id],'retry'),/恢复执行队列/);await f.e.controls({paused:false});
+ assert.equal(await f.e.taskAction([l1.id,l2.id],'retry'),1);assert.equal(l1.status,'queued');assert.equal(l1.response,undefined);assert.equal(l2.status,'waiting');
+});
+test('read-only feed and deleted-item events never extend the personal baseline',async()=>{
+ const f=fixture();await f.e.baseline([f.item]);f.e.state.auto=true;
+ await f.e.observe(paper({key:'FEED0001',writable:false,dateAdded:20000}));await f.e.observe(paper({key:'DELETED1',deleted:true,dateAdded:20000}));
+ assert.equal(Object.keys(f.e.state.baseline).length,1);assert.equal(f.e.state.tasks.length,0);
 });
