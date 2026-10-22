@@ -1,0 +1,16 @@
+{
+  "manifest_version": 2,
+  "name": "Literature Flow",
+  "version": "0.2.1",
+  "description": "Minimal L1/L2/L3 literature workflow for Zotero",
+  "homepage_url": "https://github.com/PracticeEarnestly/zotero-literature-flow",
+  "author": "Xiqing; derived workflow concepts from zotero-AI-Butler",
+  "applications": {
+    "zotero": {
+      "id": "literatureflow@zotero.local",
+      "update_url": "https://github.com/PracticeEarnestly/zotero-literature-flow/releases/latest/download/update.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "9.*"
+    }
+  }
+}
