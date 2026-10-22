@@ -1,0 +1,138 @@
+{
+  "at": "2026-10-22T22:20:48.738Z",
+  "version": "0.4.1",
+  "butlerVersion": "5.1.0",
+  "combinedNotes": 4,
+  "originalNotesChecked": 1953,
+  "originalBodiesUnchanged": 1949,
+  "combinedProvenanceLabelsUpdated": 4,
+  "serializationNormalizedNotes": 1,
+  "legacyTagsUnchanged": true,
+  "newNotesDuringMigration": 0,
+  "modelRequestsAdded": 0,
+  "baselinePreserved": true,
+  "baselineItems": 1926,
+  "role": "executor",
+  "paused": false,
+  "auto": true,
+  "officialQueue": 0,
+  "officialAutoScan": false,
+  "nativePreview": {
+    "allParents": 4,
+    "results": [
+      {
+        "stages": [
+          "L1",
+          "L2",
+          "L3"
+        ],
+        "summaryVersions": 1,
+        "characters": 21588,
+        "containsCombinedTitle": true,
+        "strong": 115,
+        "lists": 62
+      },
+      {
+        "stages": [
+          "L1",
+          "L2"
+        ],
+        "summaryVersions": 1,
+        "characters": 6671,
+        "containsCombinedTitle": true,
+        "strong": 1,
+        "lists": 42
+      },
+      {
+        "stages": [
+          "L1",
+          "L2",
+          "L3"
+        ],
+        "summaryVersions": 1,
+        "characters": 15711,
+        "containsCombinedTitle": true,
+        "strong": 23,
+        "lists": 99
+      },
+      {
+        "stages": [
+          "L1",
+          "L2"
+        ],
+        "summaryVersions": 1,
+        "characters": 7998,
+        "containsCombinedTitle": true,
+        "strong": 1,
+        "lists": 11
+      }
+    ]
+  },
+  "stages": [
+    {
+      "L1": "complete",
+      "L2": "complete",
+      "L3": "complete"
+    },
+    {
+      "L1": "complete",
+      "L2": "complete",
+      "L3": "missing"
+    },
+    {
+      "L1": "complete",
+      "L2": "complete",
+      "L3": "complete"
+    },
+    {
+      "L1": "complete",
+      "L2": "complete",
+      "L3": "missing"
+    }
+  ],
+  "tasks": [
+    {
+      "stage": "L2",
+      "status": "completed",
+      "reason": "",
+      "attempts": 1
+    },
+    {
+      "stage": "L3",
+      "status": "completed",
+      "reason": "",
+      "attempts": 1
+    },
+    {
+      "stage": "L2",
+      "status": "completed",
+      "reason": "",
+      "attempts": 1
+    },
+    {
+      "stage": "L2",
+      "status": "completed",
+      "reason": "",
+      "attempts": 1
+    },
+    {
+      "stage": "L3",
+      "status": "completed",
+      "reason": "",
+      "attempts": 1
+    },
+    {
+      "stage": "L2",
+      "status": "completed",
+      "reason": "",
+      "attempts": 1
+    },
+    {
+      "stage": "L3",
+      "status": "failed",
+      "reason": "output-missing-sections",
+      "attempts": 1
+    }
+  ],
+  "temporaryDriverRemoved": true
+}

@@ -70,7 +70,7 @@ test('host adapter writes L1-L3 into one combined note and replays do not create
  const r=runtime();await r.start();await r.configure();let calls=0;
  r.context.fetch=async()=>{const stage=['L1','L2','L3'][calls++],body=stage==='L1'?'**Finding**\nDATA_AVAILABILITY: NotReported\nDATA_ACCESSION: Not reported':pack.stages[stage].sections.map(s=>'## '+s+'\n**Evidence** from the paper.').join('\n');return {ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:body+'\nZOTERO_TAGS_JSON_START\n{"evidence":["Evidence:E2"]}\nZOTERO_TAGS_JSON_END'}}]})};};
  await r.args.api.action(r.args,false,'fill',3);await r.tick();await r.tick();await r.tick();
- assert.equal(calls,3);assert.equal(r.commits,1);assert.equal(r.parent.notes.length,1);const n=await r.Zotero.Items.getAsync(r.parent.notes[0]);assert(n.getTags().some(t=>t.tag==='LF:Combined'));assert(n.getNote().includes('<strong>'));
+ assert.equal(calls,3);assert.equal(r.commits,1);assert.equal(r.parent.notes.length,1);const n=await r.Zotero.Items.getAsync(r.parent.notes[0]);assert(n.getTags().some(t=>t.tag==='LF:Combined'));assert(n.getTags().some(t=>t.tag==='AI-Summary'));assert(n.getNote().includes('<strong>'));
  const v=await r.args.api.view(r.args,false);for(const stage of ['L1','L2','L3'])assert.equal(v.items[0].levels[stage].state,'complete');
  const s=JSON.parse(r.files.get('/profile/literature-flow-v1/state.json'));assert.equal(new Set(s.tasks.map(t=>t.noteKey)).size,1);
  await r.args.api.action(r.args,false,'fill',3);await r.tick();assert.equal(calls,3);assert.equal(r.commits,1);
@@ -78,7 +78,7 @@ test('host adapter writes L1-L3 into one combined note and replays do not create
 test('host consolidation preserves originals, creates a durable backup and is idempotent while paused',async()=>{
  const r=runtime();await r.start();await r.configure();await r.args.api.pause();const C=require('../addon/content/core');
  const old=new r.Zotero.Item('note');old.setNote(C.render('Existing **content**',{stage:'L1',revision:0,task:'old',parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test paper'));old.addTag('LF:Note');await r.Zotero.DB.executeTransaction(()=>old.save());const html=old.getNote();
- const result=await r.args.api.consolidate(r.args,false);assert.equal(result.length,1);assert.equal(result[0].archived,1);assert.equal(old.getNote(),html);assert(old.getTags().some(t=>t.tag==='LF:Archive'));assert([...r.files.keys()].some(p=>p.includes('/note-backups/')));assert.equal(r.requests,0);
+ const result=await r.args.api.consolidate(r.args,false);assert.equal(result.length,1);assert.equal(result[0].archived,1);assert.equal(old.getNote(),html);assert(old.getTags().some(t=>t.tag==='LF:Archive'));assert(!old.getTags().some(t=>t.tag==='AI-Summary'));assert([...r.files.keys()].some(p=>p.includes('/note-backups/')));assert.equal(r.requests,0);
  const v=await r.args.api.view(r.args,false);assert.equal(v.items[0].levels.L1.state,'complete');assert.equal(v.paused,true);
  const saves=r.saves;await r.args.api.consolidate(r.args,false);assert.equal(r.saves,saves);assert.equal(r.commits,2);
 });
@@ -86,4 +86,14 @@ test('host consolidation refuses a concurrently edited original instead of overw
  const r=runtime();await r.start();await r.configure();const C=require('../addon/content/core'),old=new r.Zotero.Item('note');old.setNote(C.render('Existing',{stage:'L1',revision:0,task:'old',parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test paper'));old.addTag('LF:Note');await r.Zotero.DB.executeTransaction(()=>old.save());
  const tx=r.Zotero.DB.executeTransaction;r.Zotero.DB.executeTransaction=async fn=>{old.html+='User concurrent edit';return tx(fn);};
  await assert.rejects(()=>r.args.api.consolidate(r.args,false),/review-note-changed/);assert.equal(r.commits,1);assert(old.html.endsWith('User concurrent edit'));assert(!old.getTags().some(t=>t.tag==='LF:Archive'));assert.equal(r.requests,0);
+});
+
+test('existing combined notes gain native summary discovery without body changes or inference',async()=>{
+ const r=runtime();await r.start();await r.configure();await r.args.api.action(r.args,false,'fill',1);await r.tick();await r.args.api.pause();
+ const note=await r.Zotero.Items.getAsync(r.parent.notes[0]);note.tags=note.tags.filter(t=>t.tag!=='AI-Summary');
+ const body=note.getNote(),requests=r.requests,commits=r.commits;
+ await r.args.api.consolidate(r.args,false);
+ assert(note.getTags().some(t=>t.tag==='AI-Summary'));assert.equal(note.getNote(),body);assert.equal(r.requests,requests);assert.equal(r.commits,commits);
+ assert.equal((await r.args.api.view(r.args,false)).items[0].levels.L1.state,'complete');
+ const saves=r.saves;await r.args.api.consolidate(r.args,false);assert.equal(r.saves,saves);
 });

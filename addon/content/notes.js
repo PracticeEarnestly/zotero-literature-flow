@@ -37,6 +37,15 @@ var LFNotes = (()=>{
     const i=marks.findIndex(m=>m[1].toUpperCase()===stage);if(i<0)throw new Error('review-legacy-block');
     return text.slice(marks[i].index,marks[i+1]?.index??text.length).trim();
   }
+  function legacyPreviewBody(html){
+    // Butler treats its visible source label as a version boundary, even after
+    // copying it as plain text. Keep provenance values but label them as history.
+    return html.replace(/<p\b[^>]*>[\s\S]*?<\/p>/gi,p=>{
+      const text=C.visible(p);
+      if(!/AI\s*来源[:：]/.test(text)||!/供应商[:：]/.test(text)||!/(?:模型|生成时间)[:：]/.test(text))return p;
+      return p.replace(/AI\s*来源(?=[:：])/g,'原笔记生成信息').replace(/\bdata-ai-butler-llm-source=/gi,'data-lf-legacy-source=');
+    });
+  }
   function assemble(item,pack,history,incoming=null,formatted={}){
     const live=item.notes.filter(n=>!(n.tags||[]).includes('LF:Archive'));
     const combined=live.filter(n=>(n.tags||[]).includes('LF:Combined'));
@@ -54,6 +63,7 @@ var LFNotes = (()=>{
     }
     if(incoming){const p=singleBody({html:incoming,tags:['LF:Note']});const old=blocks[p.record.stage];p.record={...p.record,previous:[...new Set([...(p.record.previous||[]),...(old?.record.previous||[])])]};blocks[p.record.stage]={...p,after:old?.after||''};}
     if(!Object.keys(blocks).length)throw new Error('review-no-complete-results');
+    for(const block of Object.values(blocks))if(block.record.source==='LEGACY_TEXT')block.body=legacyPreviewBody(block.body);
     const available=C.stages.filter(s=>blocks[s]);
     const html=parts.prefix+available.map(s=>'<h3>['+s+'] '+titles[s]+'</h3>'+blocks[s].body).join('')+'<h6>生成记录</h6>'+available.map(s=>C.recordHTML(blocks[s].record)).join('')+parts.suffix;
     const archive=live.filter(n=>n.key!==target?.key&&(n.tags||[]).includes('LF:Note')&&C.records(n).length&&C.records(n).every(r=>blocks[r.stage]?.record.task===r.task)).map(n=>n.id);

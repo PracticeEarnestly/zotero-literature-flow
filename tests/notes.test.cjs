@@ -35,3 +35,15 @@ test('conflicting or malformed notes are held for review instead of overwritten'
  const p=asNote(N.assemble(item([note('L1',1)]),pack,[]));p.html=p.html.replace('[L1] 一句话概览','User removed section marker');assert.throws(()=>N.assemble(item([p]),pack,[],C.render('New',record('L2'),'Paper')),/format/);
  const n=note('L1',1);n.html=n.html.replace(/<\/div>$/,'<p>Trailing user note</p></div>');assert.throws(()=>N.assemble(item([n]),pack,[]),/extra-content/);
 });
+
+test('copied Butler provenance stays readable without splitting a combined note into preview versions',()=>{
+ const source='<p>AI 来源：供应商：Original · 模型：Model-A · 生成时间：2026-10-21</p><p>Summary</p><p>DATA_AVAILABILITY: NotReported</p><p>DATA_ACCESSION: Not reported</p>';
+ const legacy={id:1,key:'LEGACY',tags:['AI-Summary'],html:source};
+ const p=N.assemble(item([legacy,note('L2',2),note('L3',3)]),pack,[]);
+ assert(p.html.includes('原笔记生成信息：供应商：Original'));assert(p.html.includes('模型：Model-A'));assert(p.html.includes('生成时间：2026-10-21'));assert(!/AI\s*来源[:：]/.test(p.html));assert.equal(legacy.html,source);
+ const old=asNote(p);old.html=old.html.replace('原笔记生成信息：','AI 来源：');
+ const upgraded=N.assemble(item([old]),pack,[]);
+ assert.equal(upgraded.html,p.html);assert.equal(N.assemble(item([asNote(upgraded)]),pack,[]).html,p.html);
+ assert.equal(N.split(old).blocks.L2.body,N.split(asNote(upgraded)).blocks.L2.body);assert.equal(N.split(old).blocks.L3.body,N.split(asNote(upgraded)).blocks.L3.body);
+ const state=C.inspect(item([asNote(upgraded)]),pack,[]);for(const s of C.stages)assert.equal(state[s].state,'complete');
+});

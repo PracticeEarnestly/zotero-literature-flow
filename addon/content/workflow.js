@@ -119,7 +119,7 @@ var LiteratureFlow = (() => {
   async function saveCombined(item,incoming,tags,valid,trashOld=false){
     const snapshot=await get(item.id);if(!snapshot?.writable||snapshot.deleted||!valid())throw new Error('review-commit-ineligible');
     const plan=N.assemble(snapshot,pack,engine.state.tasks,incoming,await formattedBodies(snapshot));
-    if(plan.target?.html===plan.html&&!plan.archive.length)return {key:plan.target.key,archived:0};
+    if(plan.target?.html===plan.html&&!plan.archive.length&&plan.target.tags.includes('AI-Summary'))return {key:plan.target.key,archived:0};
     // Durable, private backup precedes any mutation; edits to other levels remain intact.
     const backupDir=PathUtils.join(dir,'note-backups');await IOUtils.makeDirectory(backupDir,{ignoreExisting:true,permissions:0o700});
     await atomic(PathUtils.join(backupDir,Date.now()+'-'+uuid()+'.json'),{parent:snapshot.key,scope:snapshot.scope,notes:snapshot.notes});
@@ -132,7 +132,10 @@ var LiteratureFlow = (() => {
       if(incoming&&active?.mode==='automatic'&&C.target(C.rating(parent.getField('extra'),parent.getTags().map(t=>t.tag),engine.state.tagAdapter))<C.stages.indexOf(active.stage)+1)throw new Error('review-rating-changed');
       const note=plan.target?await Zotero.Items.getAsync(plan.target.id):new Zotero.Item('note');
       if(!plan.target){note.libraryID=parent.libraryID;note.parentID=parent.id;}
-      note.setNote(plan.html);if(!note.getTags().some(t=>t.tag==='LF:Note'))note.addTag('LF:Note');if(!note.getTags().some(t=>t.tag==='LF:Combined'))note.addTag('LF:Combined');await note.save();noteKey=note.key;
+      note.setNote(plan.html);if(!note.getTags().some(t=>t.tag==='LF:Note'))note.addTag('LF:Note');if(!note.getTags().some(t=>t.tag==='LF:Combined'))note.addTag('LF:Combined');
+      // Native AI Butler summary discovery uses this tag; no duplicate preview Note.
+      if(!note.getTags().some(t=>t.tag==='AI-Summary'))note.addTag('AI-Summary');
+      await note.save();noteKey=note.key;
       for(const id of plan.archive){const old=await Zotero.Items.getAsync(id);old.addTag('LF:Archive');if(trashOld)old.deleted=true;await old.save();}
       for(const tag of tags)if(!parent.hasTag(tag))parent.addTag(tag);
       if(tags.length)await parent.save();
