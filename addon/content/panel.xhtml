@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/><script src="panel.js" defer="defer"></script></head>
+<body>
+<header><span class="eyebrow">LITERATURE FLOW · 0.3.0 PREVIEW</span><h1>文献工作流</h1><p>沿用现有 L1–L3 提示词。先检查范围，再补齐缺失。</p></header>
+<main>
+<section><h2>本机角色与连接</h2>
+<div class="grid"><label>本机角色<select id="role"><option value="reader-standby">阅读 / 待机（默认）</option><option value="executor">唯一执行端</option><option value="disabled">停用</option></select></label><label>模型名称<input id="model"/></label></div>
+<div class="grid"><label>P520 Base URL<input id="baseURL" placeholder="http://主机:9527/v1"/></label><label>API Key（留空保留现值）<input id="token" type="password" autocomplete="off"/></label></div>
+<div class="buttons"><button id="save">保存设置并暂停</button><button id="probe">检查模型列表</button><button id="resume">恢复队列</button><button id="pause">暂停队列</button></div>
+<p class="hint">密钥存入本机凭据库。启用执行端前，请确认其他设备的旧自动扫描已关闭且在途任务已结束。</p>
+<div class="buttons"><button id="auto">建立当前库基线并启用自动化</button><button id="autoOff">关闭自动化</button><button id="exportConfig">导出共享配置</button><button id="importConfig">导入配置（重置待机）</button></div>
+</section>
+<section><h2>当前选择</h2><label class="inline"><input id="recursive" type="checkbox"/> 包含子分类</label>
+<div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选任务</button></div>
+<div class="buttons"><button id="regenerate">重新生成指定级别…</button><button id="protect">创建旧 Note 保护副本…</button><button id="report">导出只读报告</button></div>
+<p id="summary" class="hint"></p><div class="tablewrap"><table><thead><tr><th>文献</th><th>评分</th><th>L1 / L2 / L3</th><th>输入</th></tr></thead><tbody id="items"></tbody></table></div>
+<details><summary>确认主文 PDF 与已保存的 MinerU 文本</summary><p class="hint">仅单篇选择可绑定。请先检查 Markdown 确实来自该 PDF 且完整；本版本只发送文字。</p><pre id="attachments"></pre><div class="grid"><label>PDF 附件 key<input id="pdfKey"/></label><label>Markdown/HTML 附件 key（可留空）<input id="markdownKey"/></label></div><button id="bind">确认来源并绑定</button></details>
+</section>
+<section><h2>本地队列</h2><p id="state"></p><pre id="tasks"></pre></section>
+<p id="message" role="status" aria-live="polite"></p>
+<footer>预览版本：构建与模拟测试不等于 Zotero 实机验收。普通 Note 在停用插件后仍可阅读。</footer>
+</main></body></html>

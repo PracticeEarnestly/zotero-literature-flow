@@ -1,469 +1,256 @@
-/*
- * Literature Flow
- * Copyright (C) 2026 Xiqing
- * SPDX-License-Identifier: AGPL-3.0-or-later
- *
- * This file intentionally contains only the literature workflow needed by
- * this installation. It does not include chat, dashboard, image, export, or
- * review functions from the upstream AI Butler project.
- */
-
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 var LiteratureFlow = (() => {
-  const PREF = "extensions.zotero.literatureFlow.";
-  const LEVELS = { L1: 1, L2: 2, L3: 3 };
-  const LEVEL_TAGS = { L1: "AI:L1", L2: "AI:L2", L3: "AI:L3" };
-  const NOTE_TAG = "Literature Flow";
-  const active = new Map();
-  const debounced = new Map();
-  const menus = new Map();
-  let notifierID;
-  let alive = false;
-
-  function pref(name) {
-    return Zotero.Prefs.get(PREF + name);
+  const C=LFCore, PREF='extensions.zotero.literatureFlowV1.config', LOGIN='chrome://literature-flow';
+  let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve();
+  const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set();
+  const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],debounceMs:2500,intervalMs:5000,bindings:{}};
+  const uuid=()=>Services.uuid.generateUUID().toString().replace(/[{}]/g,'');
+  const hash=text=>{
+    const bytes=new TextEncoder().encode(text),h=Components.classes['@mozilla.org/security/hash;1'].createInstance(Components.interfaces.nsICryptoHash);
+    h.init(h.SHA256);h.update(bytes,bytes.length);return Array.from(h.finish(false),c=>c.charCodeAt(0).toString(16).padStart(2,'0')).join('');
+  };
+  async function atomic(path,value) {await IOUtils.writeUTF8(path,JSON.stringify(value,null,2),{tmpPath:path+'.tmp'});}
+  async function read(path) {try{return JSON.parse(await IOUtils.readUTF8(path));}catch(e){if(await IOUtils.exists(path))throw new Error('review-corrupt-local-state');return null;}}
+  function scope(libraryID) {
+    const lib=Zotero.Libraries.get(libraryID);
+    if(lib.libraryType==='group')return 'group:'+lib.groupID;
+    return Zotero.Users.getCurrentUserID() ? 'user:'+Zotero.Users.getCurrentUserID() : 'local:'+engine.state.device;
   }
-
-  function setPref(name, value) {
-    Zotero.Prefs.set(PREF + name, value);
+  function allowed(item) {
+    const lib=Zotero.Libraries.get(item.libraryID);
+    return !!lib?.editable && (item.libraryID===Zotero.Libraries.userLibraryID || lib.libraryType==='group' && config.allowedGroups.includes(lib.groupID));
   }
-
-  function log(message, error) {
-    Zotero.debug(`[Literature Flow] ${message}`);
-    if (error) Zotero.logError(error);
+  async function get(id) {
+    const item=await Zotero.Items.getAsync(id);
+    if(!item?.isRegularItem?.())return null;
+    const notes=[];
+    for(const nid of item.getNotes()) {const n=await Zotero.Items.getAsync(nid);if(n && !n.deleted)notes.push({key:n.key,id:n.id,html:n.getNote(),tags:n.getTags().map(t=>t.tag)});}
+    return {id:item.id,key:item.key,scope:scope(item.libraryID),libraryID:item.libraryID,title:item.getField('title'),extra:item.getField('extra'),tags:item.getTags().map(t=>t.tag),authors:item.getCreators().map(c=>c.name||[c.firstName,c.lastName].filter(Boolean).join(' ')).join(', '),dateAdded:Date.parse(item.dateAdded.replace(' ','T')+'Z'),deleted:item.deleted,writable:allowed(item),notes};
   }
-
-  function toNumber(value, fallback) {
-    const parsed = Number.parseInt(String(value), 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  async function normalized(items) {
+    const ids=new Set();
+    for(let i of items) {
+      if(typeof i==='number')i=await Zotero.Items.getAsync(i);
+      if(i?.parentItemID)i=await Zotero.Items.getAsync(i.parentItemID);
+      if(i?.isRegularItem?.())ids.add(i.id);
+    }
+    return (await Promise.all([...ids].map(get))).filter(Boolean);
   }
-
-  function levelName(level) {
-    return Object.entries(LEVELS).find(([, rank]) => rank === level)?.[0];
+  async function allItems() {
+    const libs=Zotero.Libraries.getAll().filter(l=>l.libraryID===Zotero.Libraries.userLibraryID || l.libraryType==='group' && config.allowedGroups.includes(l.groupID));
+    const result=[];
+    for(const lib of libs)result.push(...await normalized(await Zotero.Items.getAll(lib.libraryID,true,false)));
+    return result;
   }
-
-  function parentItem(item) {
-    if (item?.isRegularItem?.()) return item;
-    return item?.parentItem || null;
+  async function input(item) {
+    const parent=await Zotero.Items.getAsync(item.id),atts=await Zotero.Items.getAsync(parent.getAttachments());
+    const binding=config.bindings[item.scope+'/'+item.key];
+    const pdfs=atts.filter(a=>a.attachmentContentType==='application/pdf' && !a.deleted);
+    const pdf=binding ? pdfs.find(p=>p.key===binding.pdf) : pdfs.length===1 ? pdfs[0] : null;
+    if(!pdf)throw new Error(pdfs.length>1 ? 'waiting-main-pdf-selection' : 'waiting-pdf');
+    const path=await pdf.getFilePathAsync();
+    if(!path || !await IOUtils.exists(path))throw new Error('waiting-local-pdf');
+    const st=await IOUtils.stat(path);
+    if(binding?.markdown) {
+      const md=atts.find(a=>a.key===binding.markdown);
+      const mp=await md?.getFilePathAsync();
+      if(!mp || !await IOUtils.exists(mp))throw new Error('waiting-local-markdown');
+      if(!/\.(md|markdown|html?)$/i.test(mp))throw new Error('review-markdown-type');
+      const raw=await IOUtils.readUTF8(mp),text=/\.html?$/i.test(mp) ? C.visible(raw) : raw;
+      // Binding explicitly confirms the main PDF correspondence; file replacement invalidates it.
+      if(binding.pdfSize!==st.size || binding.pdfModified!==st.lastModified || binding.markdownHash!==hash(raw))throw new Error('review-binding-source-changed');
+      return {text,hash:hash(text),mode:'MINERU_TEXT',complete:true,pdfKey:pdf.key,attachmentKey:md.key,coverage:'user-confirmed',imagesSent:0};
+    }
+    const stats=await Zotero.Fulltext.getPages(pdf.id);
+    if(!stats || !stats.total || stats.indexedPages!==stats.total)throw new Error('waiting-fulltext-coverage');
+    const cache=Zotero.Fulltext.getItemCacheFile(pdf).path;
+    if(!await IOUtils.exists(cache))throw new Error('waiting-fulltext-cache');
+    const cacheStat=await IOUtils.stat(cache);
+    if(cacheStat.lastModified < st.lastModified)throw new Error('waiting-stale-index');
+    const text=await IOUtils.readUTF8(cache);
+    return {text,hash:hash(text+'|'+pdf.key+'|'+st.size+'|'+st.lastModified),mode:'PDF_TEXT',complete:!!text.trim(),pdfKey:pdf.key,coverage:stats,imagesSent:0};
   }
-
-  function getRating(item) {
-    const extra = String(item.getField("extra") || "");
-    const match = extra.match(
-      /(?:^|\r?\n)\s*(?:rate|rating|评级)\s*:\s*([0-5])\s*(?=\r?$|\r?\n)/im,
-    );
-    return match ? Number(match[1]) : 0;
+  function endpoint(base) {
+    const url=Services.io.newURI(base.trim());
+    if(!['http','https'].includes(url.scheme) || !url.host || url.host==='0.0.0.0' || url.userPass || /[?#]/.test(base))throw new Error('review-endpoint');
+    return base.trim().replace(/\/+$/,'').replace(/\/chat\/completions$/,'');
   }
-
-  function targetForRating(rating) {
-    if (rating >= 5) return LEVELS.L3;
-    if (rating >= 2) return LEVELS.L2;
-    return LEVELS.L1;
+  async function key() {return (await Services.logins.findLogins(LOGIN,null,'Literature Flow'))[0]?.password || '';}
+  async function setKey(value) {
+    const old=await Services.logins.findLogins(LOGIN,null,'Literature Flow');
+    for(const login of old)Services.logins.removeLogin(login);
+    if(value){const l=Components.classes['@mozilla.org/login-manager/loginInfo;1'].createInstance(Components.interfaces.nsILoginInfo);l.init(LOGIN,null,'Literature Flow','api',value,'','');await Services.logins.addLoginAsync(l);}
   }
-
-  function hasTag(item, tag) {
-    return item.getTags().some((entry) => entry.tag === tag);
-  }
-
-  function addTag(item, tag) {
-    if (!hasTag(item, tag)) item.addTag(tag);
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
-  }
-
-  function notify(window, text, type = "info") {
-    log(text);
+  async function http(path,body,timeout=pack.timeoutMs) {
+    const base=endpoint(config.baseURL),token=await key(),ac=new AbortController();controllers.add(ac);
+    const timeoutID=setTimeout(()=>ac.abort(),timeout);
     try {
-      const progress = new Zotero.ProgressWindow({ closeOnClick: true });
-      progress.changeHeadline("Literature Flow");
-      progress.addDescription(escapeHtml(text));
-      progress.show();
-      window?.setTimeout?.(() => progress.close(), type === "error" ? 9000 : 4500);
-    } catch (_) {
-      // Automated jobs do not require a visible window.
-    }
+      const r=await fetch(base+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token ? {Authorization:'Bearer '+token} : {})},body:body?JSON.stringify(body):undefined,signal:ac.signal,redirect:'error'});
+      if(!r.ok)throw Object.assign(new Error('http-'+r.status),{code:'http-'+r.status});
+      try{return await r.json();}catch{throw new Error('output-invalid-json');}
+    }catch(e){if(/^(http-|output-)/.test(e.message))throw e;throw new Error('network-request-failed');}
+    finally{clearTimeout(timeoutID);controllers.delete(ac);}
   }
-
-  function bestWindow() {
-    return Zotero.getMainWindow?.() || null;
+  async function request(item,stage,source,contract) {
+    if(!config.model.trim())throw new Error('review-model-empty');
+    const prompt=contract.stages[stage].prompt.replace(/\{\{title\}\}/g,()=>item.title).replace(/\{\{authors\}\}/g,()=>item.authors);
+    const data=await http('/chat/completions',{model:config.model,...contract.parameters,messages:[{role:'system',content:contract.system},{role:'user',content:prompt+'\n\n<Paper>\n'+source.text+'\n</Paper>'}]});
+    const choice=data.choices?.[0];
+    return {text:choice?.message?.content,finish:choice?.finish_reason,model:data.model,usage:data.usage};
   }
-
-  async function selectedItems(window) {
-    const pane = window?.ZoteroPane;
-    const items = pane?.getSelectedItems?.() || [];
-    return items.map(parentItem).filter(Boolean);
-  }
-
-  async function collectionItems(window) {
-    const collection = window?.ZoteroPane?.getSelectedCollection?.();
-    if (!collection) throw new Error("请先选择一个文献库或分类文件夹。");
-    const ids = collection.getChildItems?.() || [];
-    const items = [];
-    for (const id of ids) {
-      const item = await Zotero.Items.getAsync(id);
-      if (item?.isRegularItem?.()) items.push(item);
-    }
-    return items;
-  }
-
-  function appendMenuItem(doc, popup, label, handler) {
-    const item = doc.createXULElement("menuitem");
-    item.setAttribute("label", label);
-    item.addEventListener("command", handler);
-    popup.appendChild(item);
-    return item;
-  }
-
-  function addWorkflowMenu(window, popupID, useCollection) {
-    const doc = window.document;
-    const host = doc.getElementById(popupID);
-    if (!host || doc.getElementById(`${popupID}-literature-flow`)) return [];
-
-    const menu = doc.createXULElement("menu");
-    menu.id = `${popupID}-literature-flow`;
-    menu.setAttribute("label", "Literature Flow");
-    const popup = doc.createXULElement("menupopup");
-    menu.appendChild(popup);
-    const getItems = () =>
-      useCollection ? collectionItems(window) : selectedItems(window);
-    const run = (level, force = false) => async () => {
-      try {
-        const items = await getItems();
-        if (!items.length) throw new Error("没有可处理的文献条目。");
-        for (const item of items) enqueue(item, level, force, "manual");
-        notify(window, `已加入 ${items.length} 篇文献的 ${levelName(level)} 队列。`);
-      } catch (error) {
-        notify(window, error.message || String(error), "error");
-      }
-    };
-    appendMenuItem(doc, popup, "运行 L1：快速概括", run(LEVELS.L1, true));
-    appendMenuItem(doc, popup, "运行 L2：结构化解读", run(LEVELS.L2, true));
-    appendMenuItem(doc, popup, "运行 L3：证据审视", run(LEVELS.L3, true));
-    appendMenuItem(doc, popup, "按评级运行", async () => {
-      try {
-        const items = await getItems();
-        if (!items.length) throw new Error("没有可处理的文献条目。");
-        for (const item of items) {
-          enqueue(item, targetForRating(getRating(item)), false, "rating");
-        }
-        notify(window, `已按评级加入 ${items.length} 篇文献。`);
-      } catch (error) {
-        notify(window, error.message || String(error), "error");
-      }
+  async function commit(item,html,tags,valid) {
+    let noteKey;
+    await Zotero.DB.executeTransaction(async()=>{
+      const parent=await Zotero.Items.getAsync(item.id);
+      if(!valid() || parent.deleted || !allowed(parent))throw new Error('review-commit-ineligible');
+      // Ratings are read again inside the short write transaction.
+      const active=engine.state.tasks.find(t=>t.itemID===item.id && t.status==='ready_to_commit');
+      if(active?.mode==='automatic' && C.target(C.rating(parent.getField('extra'),parent.getTags().map(t=>t.tag),engine.state.tagAdapter))<C.stages.indexOf(active.stage)+1)throw new Error('review-rating-changed');
+      const note=new Zotero.Item('note');note.libraryID=parent.libraryID;note.parentID=parent.id;note.setNote(html);note.addTag('LF:Note');await note.save();noteKey=note.key;
+      for(const tag of tags)if(!parent.hasTag(tag))parent.addTag(tag);
+      await parent.save();
     });
-    popup.appendChild(doc.createXULElement("menuseparator"));
-    appendMenuItem(doc, popup, "配置接口与 MinerU…", () => configure(window));
-    host.appendChild(menu);
-    return [menu];
+    return noteKey;
   }
-
-  async function onMainWindowLoad(window) {
-    if (!alive) return;
-    const add = () => {
-      const elements = [
-        ...addWorkflowMenu(window, "zotero-itemmenu", false),
-        ...addWorkflowMenu(window, "zotero-collectionmenu", true),
-      ];
-      if (elements.length) menus.set(window, elements);
-    };
-    add();
-    window.setTimeout(add, 1000);
-  }
-
-  async function onMainWindowUnload(window) {
-    for (const element of menus.get(window) || []) element.remove();
-    menus.delete(window);
-  }
-
-  async function configure(window) {
-    const fields = [
-      ["l1l2Endpoint", "L1/L2 OpenAI 兼容地址（例如 http://server:port/v1）"],
-      ["l1l2Model", "L1/L2 模型名称"],
-      ["l1l2ApiKey", "L1/L2 API Key（没有可留空）"],
-      ["l3Endpoint", "L3 OpenAI 兼容地址（例如 http://server:port/v1）"],
-      ["l3Model", "L3 模型名称"],
-      ["l3ApiKey", "L3 API Key（没有可留空）"],
-      ["mineruApiKey", "MinerU API Key（留空则使用 Zotero 全文索引）"],
-    ];
-    for (const [key, label] of fields) {
-      const value = { value: String(pref(key) || "") };
-      if (!Services.prompt.prompt(window, "Literature Flow 配置", label, value, null, {})) {
-        return;
-      }
-      setPref(key, value.value.trim());
-    }
-    setPref("useMinerU", Boolean(pref("mineruApiKey")));
-    notify(window, "配置已保存。右键条目即可运行 L1、L2、L3。\n");
-  }
-
-  function enqueue(item, target, force, source) {
-    const parent = parentItem(item);
-    if (!parent || !parent.id) return;
-    const existing = active.get(parent.id);
-    if (existing) {
-      existing.target = Math.max(existing.target, target);
-      existing.force = existing.force || force;
-      return;
-    }
-    const job = { itemID: parent.id, target, force, source };
-    active.set(parent.id, job);
-    process(job).catch((error) => {
-      log(`Job failed for item ${parent.id}: ${error.message || error}`, error);
-      notify(bestWindow(), `处理失败：${parent.getField("title") || parent.id}\n${error.message || error}`, "error");
-    }).finally(() => active.delete(parent.id));
-  }
-
-  async function process(job) {
-    while (true) {
-      const item = await Zotero.Items.getAsync(job.itemID);
-      if (!item || !item.isRegularItem?.()) return;
-      const target = job.target;
-      for (let rank = LEVELS.L1; rank <= target; rank += 1) {
-        const level = levelName(rank);
-        if (job.force || !hasTag(item, LEVEL_TAGS[level])) {
-          await runLevel(item, level);
-        }
-      }
-      if (job.target === target) return;
-    }
-  }
-
-  async function runLevel(item, level) {
-    const window = bestWindow();
-    const title = String(item.getField("title") || "未命名文献");
-    notify(window, `${level} 开始：${title}`);
-    const text = await extractText(item);
-    const prompt = String(pref(`prompt${level}`) || "").trim();
-    const answer = await requestLLM(level, prompt, text, title);
-    if (!answer.trim()) throw new Error(`${level} 模型没有返回有效内容。`);
-    await appendToAINote(item, level, answer);
-    addTag(item, LEVEL_TAGS[level]);
-    await item.saveTx();
-    notify(window, `${level} 完成：${title}`);
-  }
-
-  async function findPDF(item) {
-    const candidates = [];
-    for (const id of item.getAttachments()) {
-      const attachment = await Zotero.Items.getAsync(id);
-      if (attachment?.attachmentContentType === "application/pdf") candidates.push(attachment);
-    }
-    candidates.sort((a, b) => String(a.dateAdded).localeCompare(String(b.dateAdded)));
-    for (const attachment of candidates) {
-      let path = await attachment.getFilePathAsync?.();
-      if (!path && attachment.isStoredFileAttachment?.() && Zotero.Sync?.Runner?.downloadFile) {
-        await Zotero.Sync.Runner.downloadFile(attachment);
-        path = await attachment.getFilePathAsync?.();
-      }
-      if (path && await IOUtils.exists(path)) return { attachment, path };
-    }
-    throw new Error("找不到可访问的本地 PDF。请先确认该附件已下载到本机。");
-  }
-
-  async function extractIndexedText(pdf) {
-    const fromAttachment = await pdf.attachmentText;
-    if (fromAttachment?.trim()) return fromAttachment;
-    const readCache = async () => {
-      const cache = Zotero.Fulltext.getItemCacheFile(pdf);
-      if (!cache?.path || !(await IOUtils.exists(cache.path))) return "";
-      return String(await Zotero.File.getContentsAsync(cache.path) || "");
-    };
-    let cached = await readCache();
-    if (cached.trim()) return cached;
-    await Zotero.Fulltext.indexItems([pdf.id], { complete: true });
-    const deadline = Date.now() + 30000;
-    while (Date.now() < deadline) {
-      await Zotero.Promise.delay(1000);
-      const direct = await pdf.attachmentText;
-      if (direct?.trim()) return direct;
-      cached = await readCache();
-      if (cached.trim()) return cached;
-    }
-    throw new Error("Zotero 全文索引未能提取 PDF 文本。请确认 PDF 可阅读，或配置 MinerU。 ");
-  }
-
-  async function extractMinerU(path) {
-    const apiKey = String(pref("mineruApiKey") || "").trim();
-    if (!apiKey) throw new Error("MinerU API Key 未配置。");
-    const pdfData = await IOUtils.read(path);
-    const batchResponse = await fetch("https://mineru.net/api/v4/file-urls/batch", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ files: [{ name: "document.pdf" }], model_version: "vlm" }),
-    });
-    if (!batchResponse.ok) throw new Error(`MinerU 创建任务失败（HTTP ${batchResponse.status}）。`);
-    const batch = await batchResponse.json();
-    const data = batch?.data || {};
-    const uploadURL = data.file_urls?.[0] || data.urls?.[0] || data.urls?.document?.pdf || data.items?.[0]?.url || data.upload_url;
-    if (!data.batch_id || !uploadURL) throw new Error("MinerU 返回的上传信息不完整。 ");
-    const uploadResponse = await fetch(uploadURL, { method: "PUT", body: pdfData });
-    if (!uploadResponse.ok) throw new Error(`MinerU 上传 PDF 失败（HTTP ${uploadResponse.status}）。`);
-
-    const timeout = toNumber(pref("requestTimeoutMs"), 600000);
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      await Zotero.Promise.delay(5000);
-      const statusResponse = await fetch(`https://mineru.net/api/v4/extract-results/batch/${data.batch_id}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
-      if (!statusResponse.ok) throw new Error(`MinerU 查询任务失败（HTTP ${statusResponse.status}）。`);
-      const status = await statusResponse.json();
-      const result = status?.data?.extract_result?.[0] || status?.data || {};
-      const state = String(result.state || "").toLowerCase();
-      if (["failed", "error"].includes(state)) throw new Error("MinerU 解析任务失败。 ");
-      if (state !== "done") continue;
-      const zipURL = result.full_zip_url;
-      if (!zipURL) throw new Error("MinerU 未返回结果文件。 ");
-      const zipResponse = await fetch(zipURL);
-      if (!zipResponse.ok) throw new Error(`MinerU 下载结果失败（HTTP ${zipResponse.status}）。`);
-      const zip = await JSZip.loadAsync(await zipResponse.arrayBuffer());
-      const names = Object.keys(zip.files).filter((name) => /\.md$/i.test(name));
-      const preferred = names.find((name) => /(?:full|content|auto)\.md$/i.test(name)) || names[0];
-      if (!preferred) throw new Error("MinerU 结果中没有 Markdown 文本。 ");
-      return await zip.files[preferred].async("string");
-    }
-    throw new Error("MinerU 解析超时。 ");
-  }
-
-  async function extractText(item) {
-    const { attachment, path } = await findPDF(item);
-    if (Boolean(pref("useMinerU")) && String(pref("mineruApiKey") || "").trim()) {
-      try {
-        return await extractMinerU(path);
-      } catch (error) {
-        log(`MinerU failed; falling back to Zotero full text: ${error.message || error}`);
-      }
-    }
-    return extractIndexedText(attachment);
-  }
-
-  function endpointFor(level) {
-    const group = level === "L3" ? "l3" : "l1l2";
-    const raw = String(pref(`${group}Endpoint`) || "").trim().replace(/\/$/, "");
-    const model = String(pref(`${group}Model`) || "").trim();
-    const key = String(pref(`${group}ApiKey`) || "").trim();
-    if (!raw || !model) throw new Error(`请先配置 ${level === "L3" ? "L3" : "L1/L2"} 的接口地址和模型名称。`);
-    return { url: /\/chat\/completions$/i.test(raw) ? raw : `${raw}/chat/completions`, model, key };
-  }
-
-  async function requestLLM(level, prompt, text, title) {
-    const { url, model, key } = endpointFor(level);
-    const timeout = toNumber(pref("requestTimeoutMs"), 600000);
-    const maxChars = toNumber(pref("maxInputChars"), 120000);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          ...(key ? { Authorization: `Bearer ${key}` } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          stream: false,
-          messages: [
-            { role: "system", content: "你是严谨的学术文献助手。不要创建、建议或输出 Zotero 标签。" },
-            { role: "user", content: `文献题目：${title}\n\n任务：${prompt}\n\n全文：\n${text.slice(0, maxChars)}` },
-          ],
-        }),
-      });
-      const raw = await response.text();
-      if (!response.ok) throw new Error(`模型请求失败（HTTP ${response.status}）：${raw.slice(0, 500)}`);
-      const payload = JSON.parse(raw);
-      const content = payload?.choices?.[0]?.message?.content ?? payload?.output_text;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) return content.map((entry) => entry.text || "").join("\n");
-      throw new Error("模型响应中没有可用文本。 ");
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  async function findAINote(item) {
-    const ids = item.getNotes?.() || [];
-    for (const id of ids) {
-      const note = await Zotero.Items.getAsync(id);
-      if (!note) continue;
-      const tags = note.getTags().map((tag) => tag.tag.toLowerCase());
-      const content = String(note.getNote() || "").toLowerCase();
-      if (tags.includes(NOTE_TAG.toLowerCase()) || tags.some((tag) => /ai[ :_-]?(note|summary|butler)/i.test(tag)) || content.includes("[ai-butler]")) return note;
-    }
-    return null;
-  }
-
-  async function appendToAINote(item, level, answer) {
-    let note = await findAINote(item);
-    const timestamp = new Date().toLocaleString();
-    const section = `<h2>${escapeHtml(level)} · Literature Flow</h2><p><em>${escapeHtml(timestamp)}</em></p><pre>${escapeHtml(answer)}</pre>`;
-    if (!note) {
-      note = new Zotero.Item("note");
-      note.libraryID = item.libraryID;
-      note.parentID = item.id;
-      note.setNote(`<h1>AI Note</h1>${section}`);
-      note.addTag(NOTE_TAG);
-    } else {
-      note.setNote(`${note.getNote() || ""}${section}`);
-      note.addTag(NOTE_TAG);
-    }
-    await note.saveTx();
-  }
-
-  function schedule(item, target, delay = 900) {
-    const parent = parentItem(item);
-    if (!parent?.id) return;
-    const current = debounced.get(parent.id);
-    if (current) clearTimeout(current.timer);
-    const entry = { target: Math.max(target, current?.target || 0), timer: null };
-    entry.timer = setTimeout(() => {
-      debounced.delete(parent.id);
-      enqueue(parent, entry.target, false, "automatic");
-    }, delay);
-    debounced.set(parent.id, entry);
-  }
-
-  async function notifyObserver(event, type, ids) {
-    if (!alive || type !== "item") return;
-    for (const id of ids) {
-      const changed = await Zotero.Items.getAsync(id);
-      const item = parentItem(changed);
-      if (!item?.isRegularItem?.()) continue;
-      if (event === "add") {
-        if (Boolean(pref("autoNewL1"))) schedule(item, LEVELS.L1);
-        continue;
-      }
-      if (event === "modify") {
-        const rating = getRating(item);
-        if (rating >= 2) schedule(item, targetForRating(rating));
-      }
-    }
-  }
-
+  const responsePath=(id,g)=>PathUtils.join(dir,'responses',id+'-'+g+'.json');
   async function startup() {
-    alive = true;
-    notifierID = Zotero.Notifier.registerObserver({ notify: notifyObserver }, ["item"], "literature-flow");
-    for (const window of Zotero.getMainWindows?.() || []) await onMainWindowLoad(window);
-    log("started");
+    config={...defaults,...JSON.parse(Zotero.Prefs.get(PREF,true)||'{}')};
+    // Profile directory is local and separate from Zotero's synced data directory.
+    dir=PathUtils.join(Services.dirsvc.get('ProfD',Components.interfaces.nsIFile).path,'literature-flow-v1');
+    await IOUtils.makeDirectory(PathUtils.join(dir,'responses'),{ignoreExisting:true,permissions:0o700});
+    pack=JSON.parse(await Zotero.File.getContentsAsync(rootURI+'content/contracts/legacy.json'));
+    const state=await read(PathUtils.join(dir,'state.json'));
+    engine=new C.Engine({now:()=>Date.now(),uuid,get,input,request,commit,
+      save:s=>{const snapshot=JSON.parse(JSON.stringify(s));const p=writeChain.then(()=>atomic(PathUtils.join(dir,'state.json'),snapshot));writeChain=p.catch(()=>{});return p;},
+      readResponse:read,writeResponse:async(id,g,value)=>{const p=responsePath(id,g);await atomic(p,value);return p;},
+      findResponse:async(id,g)=>await IOUtils.exists(responsePath(id,g))?responsePath(id,g):null
+    },pack,state);
+    engine.state.device ||= uuid();await engine.recover();
+    if(engine.state.role!=='disabled')registerObserver();
+    registerMenus();
+    if(engine.canRun() && engine.state.auto)for(const i of await allItems())await engine.observe(i);
+    schedule();
   }
-
-  async function shutdown() {
-    alive = false;
-    if (notifierID) Zotero.Notifier.unregisterObserver(notifierID);
-    notifierID = undefined;
-    for (const [id, entry] of debounced) clearTimeout(entry.timer);
-    debounced.clear();
-    for (const window of [...menus.keys()]) await onMainWindowUnload(window);
-    active.clear();
-    log("stopped");
+  function registerObserver(){
+    if(observer)return;
+    observer=Zotero.Notifier.registerObserver({notify(event,type,ids){
+      if(stopped || !engine.canRun())return;
+      // Notifications only schedule work; never await model requests or writes here.
+      for(const id of ids){clearTimeout(debounce.get(id));debounce.set(id,setTimeout(async()=>{
+        debounce.delete(id);
+        try{
+          const raw=await Zotero.Items.getAsync(id),items=await normalized(raw?[raw]:[]);
+          for(const item of items)await engine.observe(item);
+          for(const t of engine.state.tasks)if(t.status==='waiting' && /^waiting-/.test(t.reason||''))t.nextAt=0;
+        }catch{Zotero.debug('[Literature Flow] notifier reconciliation failed');}
+      },config.debounceMs));}
+    }},['item'],'literature-flow-v1');
   }
-
-  return { startup, shutdown, onMainWindowLoad, onMainWindowUnload };
+  function schedule(){if(stopped)return;timer=setTimeout(async()=>{try{await engine.step();}catch{Zotero.debug('[Literature Flow] worker error');}schedule();},config.intervalMs);}
+  async function shutdown(){
+    stopped=true;clearTimeout(timer);for(const t of debounce.values())clearTimeout(t);debounce.clear();
+    if(observer)Zotero.Notifier.unregisterObserver(observer);observer=null;
+    for(const id of menuIDs)Zotero.MenuManager.unregisterMenu(id);
+    for(const c of controllers)c.abort();
+    for(const p of panels)try{p.close();}catch{}
+    if(engine){engine.alive=false;await engine.controls({});}await writeChain;
+  }
+  function registerMenus(){
+    if(!Zotero.MenuManager)throw new Error('Zotero MenuManager unavailable');
+    for(const target of ['main/library/item','main/library/collection','main/menubar/tools']){
+      const menuID='literature-flow-v1-'+target.replace(/\//g,'-');
+      menuIDs.push(Zotero.MenuManager.registerMenu({menuID,pluginID:'literatureflow@zotero.local',target,menus:[{
+        menuType:'menuitem',onShowing:(e,c)=>{c.menuElem.setAttribute('label','Literature Flow · 工作流与队列…');},
+        onCommand:(e,c)=>open(target,c)
+      }]}));
+    }
+  }
+  function open(target,context){
+    const main=Zotero.getMainWindow();
+    const raw=context?.items || main.ZoteroPane.getSelectedItems();
+    // Zotero 9 provides one selected collection; Zotero 10 multi-select can pass collections.
+    const collections=context?.collections || (context?.collection ? [context.collection] : [main.ZoteroPane.getSelectedCollection()].filter(Boolean));
+    const args={api,selection:raw.map(i=>typeof i==='number'?i:i.id),collections:target==='main/library/collection'?collections.map(c=>typeof c==='number'?c:c.id):[]};
+    const win=main.openDialog('chrome://zotero-literature-flow/content/panel.xhtml','','chrome,centerscreen,resizable,width=1000,height=800',args);panels.add(win);
+  }
+  async function selected(args,recursive){
+    const raw=[...args.selection];
+    if(args.collections.length){raw.length=0;const ids=new Set(args.collections);
+      if(recursive)for(const id of args.collections)for(const c of Zotero.Collections.getByParent(id,true))ids.add(c.id);
+      for(const id of ids){const c=Zotero.Collections.get(id);if(c)raw.push(...c.getChildItems());}
+    }
+    return normalized(raw);
+  }
+  async function picker(win,save){
+    const {FilePicker}=ChromeUtils.importESModule('chrome://zotero/content/modules/filePicker.mjs');
+    const fp=new FilePicker();fp.init(win,save?'导出共享配置':'导入共享配置',save?fp.modeSave:fp.modeOpen);fp.appendFilter('JSON','*.json');fp.defaultString='literature-flow-config.json';
+    return await fp.show()===fp.returnCancel?null:fp.file;
+  }
+  const api={
+    async view(args,recursive){
+      const items=await selected(args,recursive);
+      const report=[];
+      for(const i of items){let source;try{const s=await input(i);source={mode:s.mode,characters:s.text.length,coverage:s.coverage};}catch(e){source=e.message;}
+        report.push({id:i.id,key:i.key,title:i.title,writable:i.writable,rating:C.rating(i.extra,i.tags,engine.state.tagAdapter),levels:Object.fromEntries(Object.entries(C.inspect(i,pack,engine.state.tasks)).map(([s,v])=>[s,{state:v.state,note:v.note?.key,shared:v.shared}])),input:source});}
+      return {config:{...config,bindings:undefined},role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id,items:report,tasks:engine.state.tasks.map(({id,parent,stage,status,reason,mode,revision,attempts})=>({id,parent,stage,status,reason,mode,revision,attempts}))};
+    },
+    async configure(values,token){
+      if(!['executor','reader-standby','disabled'].includes(values.role))throw new Error('无效角色');
+      if(values.baseURL)endpoint(values.baseURL);
+      await engine.controls({paused:true});for(const c of controllers)c.abort();
+      config.baseURL=values.baseURL.trim();config.model=values.model.trim();
+      Zotero.Prefs.set(PREF,JSON.stringify(config),true);
+      if(token)await setKey(token);
+      await engine.controls({role:values.role});
+      if(values.role==='disabled' && observer){Zotero.Notifier.unregisterObserver(observer);observer=null;}else if(values.role!=='disabled')registerObserver();
+    },
+    async resume(){if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});},
+    async pause(){await engine.controls({paused:true});for(const c of controllers)c.abort();},
+    async enableAuto(){
+      if(!engine.canRun())throw new Error('先设置 executor 并恢复队列');
+      if(Zotero.Sync?.Runner?.syncInProgress)throw new Error('请等待 Zotero 同步完成后建立基线');
+      await engine.baseline(await allItems());await engine.controls({auto:true});
+    },
+    async disableAuto(){await engine.controls({auto:false});for(const t of engine.state.tasks)if(t.mode==='automatic' && t.status!=='completed'){t.status='cancelled';t.generation++;t.reason='automation-disabled';}await engine.save();},
+    async action(args,recursive,action,level){
+      const items=await selected(args,recursive);
+      if(!engine.canRun())throw new Error('当前为待机或暂停，请先在设置中启用执行端并恢复队列');
+      if(action==='cancel')return engine.cancel(items);
+      if(action==='repair' || action==='protect')return engine.serial(async()=>{
+        for(const i of items){if(!i.writable || i.deleted)continue;const states=C.inspect(i,pack,engine.state.tasks);
+          for(const [stage,v] of Object.entries(states)){
+            if(v.state!=='complete')continue;
+            if(action==='protect' && v.shared){
+              await atomic(PathUtils.join(dir,'legacy-'+i.key+'-'+v.note.key+'.json'),{note:v.note,hash:hash(v.note.html)});
+              const record={stage,revision:0,task:uuid(),parent:i.key,scope:i.scope,prompt:'legacy-protected',source:'LEGACY_TEXT',created:new Date().toISOString(),previous:[v.note.key]};
+              await commit(i,C.render(C.visible(v.note.html),record,i.title),['AI:'+stage],()=>engine.canRun());
+            }else if(action==='repair')await Zotero.DB.executeTransaction(async()=>{const p=await Zotero.Items.getAsync(i.id);if(!engine.canRun()||p.deleted||!allowed(p))return;p.addTag('AI:'+stage);await p.save();});
+          }
+        }
+      });
+      for(const i of items){
+        if(action==='retry'){
+          const tasks=engine.state.tasks.filter(t=>t.itemID===i.id && t.status==='failed');
+          for(const t of tasks)await engine.serial(async()=>{t.status='queued';t.generation++;t.attempts=0;t.nextAt=0;delete t.response;await engine.save();});
+        }else await engine.plan(i,level||C.target(C.rating(i.extra,i.tags,engine.state.tagAdapter)),'manual',action==='regenerate');
+      }
+    },
+    async bind(args,pdfKey,markdownKey){
+      const items=await selected(args,false);if(items.length!==1)throw new Error('绑定来源时请选择一篇父文献');
+      const i=items[0],p=await Zotero.Items.getAsync(i.id),atts=await Zotero.Items.getAsync(p.getAttachments());
+      const pdf=atts.find(a=>a.key===pdfKey && a.attachmentContentType==='application/pdf'),md=atts.find(a=>a.key===markdownKey);
+      if(!pdf || markdownKey && !md)throw new Error('附件 key 不属于当前文献');
+      const pp=await pdf.getFilePathAsync();if(!pp || !await IOUtils.exists(pp))throw new Error('PDF 未下载');
+      const st=await IOUtils.stat(pp),mp=md?await md.getFilePathAsync():null;
+      if(md && (!mp || !await IOUtils.exists(mp)))throw new Error('Markdown 未下载');
+      config.bindings[i.scope+'/'+i.key]={pdf:pdf.key,markdown:md?.key,pdfSize:st.size,pdfModified:st.lastModified,markdownHash:mp?hash(await IOUtils.readUTF8(mp)):null};
+      Zotero.Prefs.set(PREF,JSON.stringify(config),true);
+    },
+    async attachments(args){const items=await selected(args,false);if(items.length!==1)return [];const p=await Zotero.Items.getAsync(items[0].id);return (await Zotero.Items.getAsync(p.getAttachments())).map(a=>({key:a.key,title:a.getField('title'),type:a.attachmentContentType}));},
+    async probe(){const r=await http('/models',null,15000);return {models:(r.data||[]).map(m=>m.id),note:'仅检查模型列表，不代表已完成文本推理或视觉验证'};},
+    async exportConfig(win){const path=await picker(win,true);if(path)await atomic(path,{schema:1,model:config.model,contract:pack.id});},
+    async importConfig(win){const path=await picker(win,false);if(!path)return;const v=await read(path);if(v?.schema!==1 || typeof v.model!=='string')throw new Error('配置格式无效');await engine.controls({role:'reader-standby',paused:true,auto:false});config.model=v.model;config.baseURL='';config.bindings={};config.allowedGroups=[];await setKey('');Zotero.Prefs.set(PREF,JSON.stringify(config),true);},
+    async exportReport(win,args,recursive){const path=await picker(win,true);if(path){const r=await api.view(args,recursive);delete r.config;await atomic(path,r);}}
+  };
+  return {startup,shutdown};
 })();

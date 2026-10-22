@@ -1,14 +1,2 @@
-pref("extensions.zotero.literatureFlow.autoNewL1", true);
-pref("extensions.zotero.literatureFlow.useMinerU", true);
-pref("extensions.zotero.literatureFlow.mineruApiKey", "");
-pref("extensions.zotero.literatureFlow.l1l2Endpoint", "");
-pref("extensions.zotero.literatureFlow.l1l2ApiKey", "");
-pref("extensions.zotero.literatureFlow.l1l2Model", "");
-pref("extensions.zotero.literatureFlow.l3Endpoint", "");
-pref("extensions.zotero.literatureFlow.l3ApiKey", "");
-pref("extensions.zotero.literatureFlow.l3Model", "");
-pref("extensions.zotero.literatureFlow.requestTimeoutMs", "600000");
-pref("extensions.zotero.literatureFlow.maxInputChars", "120000");
-pref("extensions.zotero.literatureFlow.promptL1", "请用中文用 3–5 句话概括论文的研究问题、方法、主要结果与结论。不要输出标签、关键词列表或无关内容。");
-pref("extensions.zotero.literatureFlow.promptL2", "请用中文结构化解读论文：研究背景、研究设计、关键结果、创新点、局限性及对相关疾病研究的启示。只依据提供的全文，不要输出标签。");
-pref("extensions.zotero.literatureFlow.promptL3", "请以审慎的研究者视角评估论文证据：因果强度、偏倚来源、可重复性、临床或机制意义，以及下一步最值得验证的问题。只依据提供的全文，不要输出标签。");
+// New namespace deliberately does not inherit 0.2.x automatic execution settings.
+pref('extensions.zotero.literatureFlowV1.config', '{}');
