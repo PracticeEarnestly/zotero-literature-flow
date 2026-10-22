@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 var LiteratureFlow = (() => {
   const C=LFCore, PREF='extensions.zotero.literatureFlowV1.config', LOGIN='chrome://literature-flow';
-  let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve();
+  let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve(),automationEpoch=0;
   const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set();
   const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],debounceMs:2500,intervalMs:5000,bindings:{}};
   const uuid=()=>Services.uuid.generateUUID().toString().replace(/[{}]/g,'');
@@ -151,7 +151,7 @@ var LiteratureFlow = (() => {
   }
   function schedule(){if(stopped)return;timer=setTimeout(async()=>{try{await engine.step();}catch{Zotero.debug('[Literature Flow] worker error');}schedule();},config.intervalMs);}
   async function shutdown(){
-    stopped=true;clearTimeout(timer);for(const t of debounce.values())clearTimeout(t);debounce.clear();
+    automationEpoch++;stopped=true;clearTimeout(timer);for(const t of debounce.values())clearTimeout(t);debounce.clear();
     if(observer)Zotero.Notifier.unregisterObserver(observer);observer=null;
     for(const id of menuIDs)Zotero.MenuManager.unregisterMenu(id);
     for(const c of controllers)c.abort();
@@ -195,7 +195,7 @@ var LiteratureFlow = (() => {
       for(const t of engine.state.tasks){const p=await Zotero.Items.getAsync(t.itemID);
         tasks.push({...Object.fromEntries(['id','parent','stage','status','reason','mode','revision','attempts'].map(k=>[k,t[k]])),title:p?.getField('title')||t.parent});
       }
-      return {role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id,tasks};
+      return {role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,baselineCount:Object.keys(engine.state.baseline).length,connectionReady:!!config.baseURL.trim()&&!!config.model.trim(),contract:pack.id,tasks};
     },
     async taskAction(ids,action){return engine.taskAction(ids,action);},
     async view(args,recursive){
@@ -206,6 +206,7 @@ var LiteratureFlow = (() => {
       return {config:{...config,bindings:undefined},role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id,items:report,tasks:engine.state.tasks.map(({id,parent,stage,status,reason,mode,revision,attempts})=>({id,parent,stage,status,reason,mode,revision,attempts}))};
     },
     async configure(values,token){
+      automationEpoch++;
       if(!['executor','reader-standby','disabled'].includes(values.role))throw new Error('无效角色');
       if(values.baseURL)endpoint(values.baseURL);
       await engine.controls({paused:true});for(const c of controllers)c.abort();
@@ -215,14 +216,27 @@ var LiteratureFlow = (() => {
       await engine.controls({role:values.role});
       if(values.role==='disabled' && observer){Zotero.Notifier.unregisterObserver(observer);observer=null;}else if(values.role!=='disabled')registerObserver();
     },
-    async resume(){if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});},
-    async pause(){await engine.controls({paused:true});for(const c of controllers)c.abort();},
-    async enableAuto(){
-      if(!engine.canRun())throw new Error('先设置 executor 并恢复队列');
-      if(Zotero.Sync?.Runner?.syncInProgress)throw new Error('请等待 Zotero 同步完成后建立基线');
-      await engine.baseline(await allItems());await engine.controls({auto:true});
+    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});},
+    async pause(){automationEpoch++;await engine.controls({paused:true});for(const c of controllers)c.abort();},
+    async startAutomation({activateExecutor=false}={}){
+      const epoch=++automationEpoch;
+      if(!config.baseURL.trim()||!config.model.trim())throw new Error('请先填写并保存模型服务地址和模型名称');
+      endpoint(config.baseURL);
+      if(engine.state.role!=='executor'&&!activateExecutor)throw new Error('请先确认本机负责处理文献');
+      await engine.controls({paused:true});for(const c of controllers)c.abort();
+      if(!engine.state.enabledAt){
+        if(Zotero.Sync?.Runner?.syncInProgress)throw new Error('请等待 Zotero 同步完成后再开启');
+        const items=await allItems();
+        if(epoch!==automationEpoch)throw new Error('开启已中止：设置或暂停状态已改变');
+        if(Zotero.Sync?.Runner?.syncInProgress)throw new Error('请等待 Zotero 同步完成后再开启');
+        await engine.baseline(items);
+      }
+      if(epoch!==automationEpoch)throw new Error('开启已中止：设置或暂停状态已改变');
+      registerObserver();
+      await engine.controls({role:'executor',auto:true,paused:false});
     },
-    async disableAuto(){await engine.controls({auto:false});for(const t of engine.state.tasks)if(t.mode==='automatic' && t.status!=='completed'){t.status='cancelled';t.generation++;t.reason='automation-disabled';}await engine.save();},
+    async enableAuto(){return api.startAutomation();},
+    async disableAuto(){automationEpoch++;await engine.controls({auto:false});for(const t of engine.state.tasks)if(t.mode==='automatic' && t.status!=='completed'){t.status='cancelled';t.generation++;t.reason='automation-disabled';}await engine.save();},
     async action(args,recursive,action,level){
       const items=await selected(args,recursive);
       if(!engine.canRun())throw new Error('当前为待机或暂停，请先在设置中启用执行端并恢复队列');
@@ -260,7 +274,7 @@ var LiteratureFlow = (() => {
     async attachments(args){const items=await selected(args,false);if(items.length!==1)return [];const p=await Zotero.Items.getAsync(items[0].id);return (await Zotero.Items.getAsync(p.getAttachments())).map(a=>({key:a.key,title:a.getField('title'),type:a.attachmentContentType}));},
     async probe(){const r=await http('/models',null,15000);return {models:(r.data||[]).map(m=>m.id),note:'仅检查模型列表，不代表已完成文本推理或视觉验证'};},
     async exportConfig(win){const path=await picker(win,true);if(path)await atomic(path,{schema:1,model:config.model,contract:pack.id});},
-    async importConfig(win){const path=await picker(win,false);if(!path)return;const v=await read(path);if(v?.schema!==1 || typeof v.model!=='string')throw new Error('配置格式无效');await engine.controls({role:'reader-standby',paused:true,auto:false});config.model=v.model;config.baseURL='';config.bindings={};config.allowedGroups=[];await setKey('');Zotero.Prefs.set(PREF,JSON.stringify(config),true);},
+    async importConfig(win){const path=await picker(win,false);if(!path)return;const v=await read(path);if(v?.schema!==1 || typeof v.model!=='string')throw new Error('配置格式无效');automationEpoch++;await engine.controls({role:'reader-standby',paused:true,auto:false});config.model=v.model;config.baseURL='';config.bindings={};config.allowedGroups=[];await setKey('');Zotero.Prefs.set(PREF,JSON.stringify(config),true);},
     async exportReport(win,args,recursive){const path=await picker(win,true);if(path){const r=await api.view(args,recursive);delete r.config;await atomic(path,r);}}
   };
   return {startup,shutdown};

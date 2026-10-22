@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.3**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.3.4**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-[下载 XPI](dist/zotero-literature-flow-0.3.3.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.3.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.3.4.xpi) · [SHA-256](dist/zotero-literature-flow-0.3.4.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 
@@ -14,7 +14,9 @@
 - 分类可包含子分类；条目、附件与 Note 会归一化到父文献并去重。
 - 所有写操作先显示范围预览；重生成保留旧版本。
 
-默认 `reader-standby`，不会调用模型或修改文献库。使用时需明确设置唯一 `executor`、填写本机连接，再恢复队列。自动化另外启用：首次建立基线不处理历史高星条目；后续只有真正新增或实际评分变化产生任务。
+默认只阅读，不会调用模型或修改文献库。首次在“高级设置”填写连接，点击“保存并开启”，确认本机是唯一执行设备。日常只使用顶部的“暂停自动处理 / 继续自动处理”；暂停也会暂停手动队列。首次开启只记录当前文献，恢复或重新开启沿用原历史记录，后续仅新增或实际评分变化产生自动任务。
+
+自动化卡片直接显示处理规则和任务数量，任务表紧随其后。连接、角色与配置导入导出默认收起。见 [0.3.4 界面与实机验证](docs/AUTOMATION_UI.md)。
 
 ## 输入和输出
 

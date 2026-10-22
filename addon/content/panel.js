@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 const args=window.arguments[0],api=args.api,$=id=>document.getElementById(id);
-let latest,queueState,queueBusy=false,queueTimer,queueSignature='';
+let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false;
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
@@ -42,9 +42,36 @@ function renderQueue(){
     $('tasks').appendChild(tr);
   }
 }
+function renderAutomation(){
+  const q=queueState,active=q.role==='executor'&&q.auto&&!q.paused;
+  $('automationStatus').textContent=active?'自动处理已开启':q.auto&&q.paused?'自动处理已暂停':q.role!=='executor'?'本机仅阅读，未开启自动处理':'自动处理未开启';
+  $('automationHint').textContent=active?'Zotero 打开时运行。暂停会同时暂停手动任务。':q.auto&&q.paused?'点击继续即可恢复，原有任务与历史记录保留。':!q.connectionReady?'首次使用：展开高级设置，填写模型连接。':'点击开启，由本机负责后续文献处理。';
+  $('automationToggle').textContent=active?'暂停自动处理':!q.connectionReady?'设置并开启':q.auto&&q.paused?'继续自动处理':'开启自动处理';
+  $('automationToggle').disabled=automationBusy;
+  $('automationHistory').textContent=q.baseline?`历史保护已启用${Number.isInteger(q.baselineCount)?' · 已记录 '+q.baselineCount+' 篇文献':''}。继续运行不会重建历史记录，已有结果不会重复生成。`:'首次开启只记录当前文献，不批量处理历史文献。';
+  const count=status=>q.tasks.filter(t=>status.includes(t.status)).length;
+  $('automationCounts').textContent=`处理中 ${count(['running','ready_to_commit'])} · 排队 / 等待 ${count(['queued','waiting'])} · 失败 ${count(['failed'])}`;
+}
+function confirmExecutor(){return queueState.role==='executor'||confirm('将本机设为负责处理文献的唯一设备？请确认其他设备及旧方案的自动扫描已暂停，初始同步已完成。');}
+async function startAutomation(){
+  if(!confirmExecutor())return;
+  await api.startAutomation({activateExecutor:true});$('role').value='executor';
+  message('自动处理已开启。已有历史记录保留，只补齐符合条件的缺失结果。');
+}
+$('automationToggle').addEventListener('click',async()=>{
+  if(automationBusy)return;automationBusy=true;$('automationToggle').disabled=true;
+  try{
+    await refreshQueue();
+    if(queueState.role==='executor'&&queueState.auto&&!queueState.paused){await api.pause();message('已暂停。已有任务和笔记保留；点击继续可恢复。');}
+    else if(!queueState.connectionReady){$('advancedSettings').open=true;$('baseURL').focus();}
+    else await startAutomation();
+  }catch(e){message(e.message||String(e));}
+  finally{automationBusy=false;await refreshQueue();}
+});
+$('showTasks').addEventListener('click',()=>{$('queueSection').scrollIntoView({behavior:'smooth'});$('taskFilter').focus({preventScroll:true});});
 async function refreshQueue(){
   if(queueBusy)return;queueBusy=true;
-  try{queueState=await api.queue();const roles={executor:'执行端','reader-standby':'阅读 / 待机',disabled:'停用'};
+  try{queueState=await api.queue();renderAutomation();const roles={executor:'执行端','reader-standby':'阅读 / 待机',disabled:'停用'};
     $('state').textContent=`角色：${roles[queueState.role]} · ${queueState.paused?'已暂停':'运行中'} · 自动化：${queueState.auto?'开启':'关闭'} · 历史基线：${queueState.baseline?'已建立':'未建立'}`;
     const signature=JSON.stringify(queueState);if(signature!==queueSignature){queueSignature=signature;renderQueue();}else selectionState();
   }finally{queueBusy=false;}
@@ -72,9 +99,19 @@ function preview(action){
 button('refresh',async()=>message('只读检查完成'));
 button('save',async()=>{await api.configure({role:$('role').value,baseURL:$('baseURL').value,model:$('model').value},$('token').value);$('token').value='';message('设置已保存，队列已暂停。');});
 button('probe',async()=>message(JSON.stringify(await api.probe(),null,2)));
-button('resume',async()=>{await api.resume();message('队列已恢复');});
+button('resume',async()=>{if(queueState.auto)throw new Error('自动处理已开启，请使用顶部的继续按钮；如需只处理手动任务，请先关闭自动触发。');await api.resume();message('手动队列已恢复');});
 button('pause',async()=>{await api.pause();message('已暂停，旧在途响应不得写回');});
-button('auto',async()=>{if(confirm('确认初始同步已完成、只有本机负责自动化？本操作只建立已有条目的基线，之后才处理新增及实际评分变化。')){await api.enableAuto();message('基线已建立，自动化已开启');}});
+button('saveStart',async()=>{
+  if(automationBusy)return;automationBusy=true;
+  try{
+    await refreshQueue();if(!confirmExecutor())return;
+    if(!$('baseURL').value.trim()||!$('model').value.trim())throw new Error('请填写模型服务地址和模型名称');
+    await api.configure({role:'executor',baseURL:$('baseURL').value,model:$('model').value},$('token').value);
+    $('token').value='';$('role').value='executor';
+    await api.startAutomation();$('advancedSettings').open=false;
+    message('连接已保存，自动处理已开启。已有历史记录保留。');
+  }finally{automationBusy=false;await refreshQueue();}
+});
 button('autoOff',async()=>{await api.disableAuto();message('自动化已关闭');});
 for(const action of ['fill','repair','retry','cancel','regenerate','protect'])button(action,async()=>{
   await refresh();if(confirm(preview(action))){await api.action(args,$('recursive').checked,action,Number($('level').value));message('操作已提交；请查看队列和条目状态。');}

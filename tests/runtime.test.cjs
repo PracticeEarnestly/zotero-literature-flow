@@ -35,3 +35,34 @@ test('host task table resolves titles and cancels a single stage without inferen
  const q=await r.args.api.queue();assert.equal(q.tasks[0].title,'Test paper');assert.equal(q.tasks.length,2);assert.equal(r.requests,0);
  assert.equal(await r.args.api.taskAction([q.tasks[1].id],'cancel'),1);const after=await r.args.api.queue();assert.equal(after.tasks[0].status,'queued');assert.equal(after.tasks[1].status,'cancelled');assert.equal(r.requests,0);assert.equal(r.saves,0);
 });
+test('one-click automation records initial history without model calls, then preserves it on resume and re-enable',async()=>{
+ const r=runtime();await r.start();await r.args.api.configure({role:'executor',baseURL:'http://localhost:9527/v1',model:'test'},'');
+ await r.args.api.startAutomation();const statePath='/profile/literature-flow-v1/state.json',before=JSON.parse(r.files.get(statePath));
+ assert.equal(before.auto,true);assert.equal(before.paused,false);assert.equal(Object.keys(before.baseline).length,1);assert.equal(before.tasks.length,0);
+ r.parent.getField=k=>({extra:'rate: 5',title:'Test paper'}[k]||'');
+ await r.args.api.pause();await r.args.api.startAutomation();await r.args.api.disableAuto();await r.args.api.enableAuto();
+ const after=JSON.parse(r.files.get(statePath));assert.equal(after.enabledAt,before.enabledAt);assert.deepEqual(after.baseline,before.baseline);assert.equal(after.tasks.length,0);assert.equal(r.requests,0);assert.equal(r.saves,0);
+ const q=await r.args.api.queue();assert.equal(q.baselineCount,1);assert.equal(q.connectionReady,true);
+});
+test('first automation start during sync stays paused and leaves history uninitialized',async()=>{
+ const r=runtime();await r.start();await r.configure();r.Zotero.Sync={Runner:{syncInProgress:true}};
+ await assert.rejects(()=>r.args.api.startAutomation(),/同步/);const q=await r.args.api.queue();assert.equal(q.paused,true);assert.equal(q.auto,false);assert.equal(q.baseline,false);assert.equal(r.requests,0);
+});
+test('automation requires a saved connection and explicit promotion of a reading device',async()=>{
+ const r=runtime();await r.start();await assert.rejects(()=>r.args.api.startAutomation({activateExecutor:true}),/地址/);
+ await r.args.api.configure({role:'reader-standby',baseURL:'http://localhost:9527/v1',model:'test'},'');
+ await assert.rejects(()=>r.args.api.startAutomation(),/确认本机/);assert.equal((await r.args.api.queue()).role,'reader-standby');
+ await r.args.api.startAutomation({activateExecutor:true});const q=await r.args.api.queue();assert.equal(q.role,'executor');assert.equal(q.auto,true);assert.equal(q.paused,false);assert.equal(r.requests,0);
+});
+test('pause while initial history is being read supersedes a pending automation start',async()=>{
+ const r=runtime();await r.start();await r.configure();let release,entered;const waiting=new Promise(resolve=>entered=resolve);
+ r.Zotero.Items.getAll=()=>{entered();return new Promise(resolve=>release=()=>resolve([r.parent]));};
+ const pending=r.args.api.startAutomation();await waiting;await r.args.api.pause();release();await assert.rejects(()=>pending,/已中止/);
+ const q=await r.args.api.queue();assert.equal(q.paused,true);assert.equal(q.auto,false);assert.equal(q.baseline,false);assert.equal(r.requests,0);
+});
+for(const change of ['import','shutdown'])test(`${change} supersedes automation activation while history is being read`,async()=>{
+ const r=runtime();await r.start();await r.configure();let release,entered;const waiting=new Promise(resolve=>entered=resolve);
+ r.Zotero.Items.getAll=()=>{entered();return new Promise(resolve=>release=()=>resolve([r.parent]));};const pending=r.args.api.startAutomation();await waiting;
+ if(change==='import'){r.files.set('/export.json',JSON.stringify({schema:1,model:'imported'}));await r.args.api.importConfig({});}else await r.context.LiteratureFlow.shutdown();
+ release();await assert.rejects(()=>pending,/已中止/);const q=await r.args.api.queue();assert.equal(q.paused,true);assert.equal(q.auto,false);assert.equal(q.baseline,false);assert.equal(r.requests,0);
+});
