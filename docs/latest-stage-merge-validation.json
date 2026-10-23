@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-22T22:44:45.662Z",
+  "version": "0.4.4",
+  "xpiSha256": "47d1c2547aa39228cf56e46603a2fc643783b773de10b898e0ad184ecee813d0",
+  "butlerVersion": "5.1.0",
+  "readOnlyAudit": {
+    "parents": 260,
+    "candidateNotes": 264,
+    "duplicateStageGroups": 0
+  },
+  "controlledMigration": {
+    "parents": 4,
+    "sourcesPreviewed": 8,
+    "sourcesMovedToTrash": 8,
+    "privateBackupsAdded": 4,
+    "modelRequestsAdded": 0,
+    "summaryVersionsPerParent": [1, 1, 1, 1],
+    "stagesPerParent": [
+      ["L1", "L2", "L3"],
+      ["L1", "L2"],
+      ["L1", "L2", "L3"],
+      ["L1", "L2"]
+    ],
+    "forbiddenMetadataVisible": false,
+    "repeatedMergeUnchanged": true
+  },
+  "restartReadback": {
+    "baseline": 1926,
+    "paused": false,
+    "auto": true,
+    "modelAttempts": 7,
+    "existingFailedTask": "output-missing-sections",
+    "officialQueue": 0,
+    "officialAutoScan": false,
+    "temporaryDriverRemoved": true
+  }
+}

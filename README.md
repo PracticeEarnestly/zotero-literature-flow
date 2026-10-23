@@ -1,21 +1,59 @@
 # Literature Flow for Zotero
 
-Literature Flow is a small Zotero XPI created for one focused workflow. It does not contain dashboards, chat, image generation, library review, note export, or generic provider management.
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.4.7**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-## Included workflow
+[下载 XPI](dist/zotero-literature-flow-0.4.7.xpi) · [SHA-256](dist/zotero-literature-flow-0.4.7.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [AI 笔记合并设计](docs/AI_NOTE_MERGE_DESIGN.md) · [0.4.7 分类任务与进度](docs/COLLECTION_TASKS_AND_PROGRESS.md) · [0.4.6 实机验收](docs/GENERATION_AWARE_MERGE.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
-- New local PDFs automatically enter L1 when `autoNewL1` is enabled.
-- A Zotero item rating stored in `Extra` as `rate: 2` to `rate: 4` runs the missing levels in order until L2 is complete.
-- `rate: 5` runs the missing levels in order until L3 is complete.
-- Re-rating a completed L2 item from 2–4 to 5 triggers L3.
-- L1/L2 and L3 can use separate OpenAI-compatible endpoints and models.
-- MinerU is used when an API key is configured; otherwise the plugin uses Zotero's built-in full-text index.
-- The plugin only adds `AI:L1`, `AI:L2`, `AI:L3`, and `Literature Flow`; it never creates topic tags from model output.
+## 日常操作
 
-## Installation
+在条目或分类右键菜单打开 **Literature Flow · 工作流与队列**，先检查当前范围，再选择操作：
 
-Download the XPI from the GitHub Releases page and install it using Zotero's **Tools → Plugins → Install Plugin From File**.
+- 按评分或手动补齐至 L1 / L2 / L3；只生成缺失的级别。
+- Extra `rate: 2–4` 对应 L2，`rate: 5` 对应 L3；L1、L2、L3 按前置结果顺序执行。
+- 只读检查、标签修复、失败重试、取消、明确重生成和旧 Note 保护副本。
+- 分类可包含子分类；条目、附件与 Note 会归一化到父文献并去重。
+- 所有写操作先显示范围预览；重生成前保存本机私有备份。
+- 每篇文献维护一条综合笔记，依次追加 L1 概览、L2 证据卡、L3 深度阅读。
+- “整合并清理分散笔记”只处理当前所选条目或分类：按 L1 → L2 → L3 合并；同级结果采用修改日期最新的一条；私有备份成功后，将所有明确识别的 AI Butler / Literature Flow 来源笔记移入 Zotero 回收站，不调用模型。
+- 没有明确 AI 标签或有效 Literature Flow 记录的笔记不会被合并或删除；确认框会先显示文献数、来源笔记数和同级重复组数。
+- “导出综合笔记 Markdown”将当前综合笔记保存为 `.md`，包含人工补充内容。
+- 综合笔记可在原版 AI 管家的“总结 → AI 总结”直接预览；后续级别仍更新同一条笔记。
 
-## Source and license
+默认只阅读，不会调用模型或修改文献库。首次在“高级设置”填写连接，点击“保存并开启”，确认本机是唯一执行设备。日常只使用顶部的“暂停自动处理 / 继续自动处理”；暂停也会暂停手动队列。首次开启只记录当前文献，恢复或重新开启沿用原历史记录，后续仅新增或实际评分变化产生自动任务。
 
-The complete source archive is published with each GitHub Release. This project is AGPL-3.0-or-later and credits the upstream [zotero-AI-Butler](https://github.com/steven-jianhao-li/zotero-AI-Butler).
+自动化卡片直接显示处理规则和任务数量，任务表紧随其后。连接、角色与配置导入导出默认收起。见 [0.3.4 界面与实机验证](docs/AUTOMATION_UI.md)。
+
+遇到标签格式错误且有已保存响应时，可在任务表点击 **检查已存结果**，先利用缓存检查，不重复调用模型。只有明确选择 **重新请求** 才重新推理。见 [0.3.5 修复与恢复验证](docs/OUTPUT_TAGS_JSON_FIX.md)。
+
+## 输入和输出
+
+冻结了 P520 AI Butler **5.1.0.3** 的现用三份提示词及 hash，没有把 L3 改成逐图解读。三层都需要全文。可使用明确绑定到主文 PDF 的已保存 MinerU Markdown/HTML，或页数覆盖完整的 Zotero PDF 索引。缺文件、部分索引、多主文候选、无法确认来源或全文过长均等待处理。
+
+结果以 Markdown 编排，渲染为 Zotero 可直接阅读和编辑的普通子 Note。支持标题、加粗、列表、引用、代码块和表格；后续级别更新在同一条综合笔记中，其他级别的正文和人工补充保持原样。使用 `LF:Note` 与可同步的可见任务标记；通过 `AI-Summary` 标签接入原版 AI Butler 总结预览，不输出 h1/h2。程序维护 `AI:L1/L2/L3` 和既有允许值的 `Evidence:E0–E5`、`Data:` 标签，不更改人工评分。未知旧格式、单独完成标签或冲突结果均待核对。
+
+0.4.5 的输入状态中文显示见 [验证记录](docs/INPUT_DISPLAY.md)。0.4.4 的按层级择新、整合和来源清理见 [验证记录](docs/LATEST_STAGE_MERGE.md)。0.4.1 的原版 AI 管家预览兼容见 [实机验证](docs/BUTLER_PREVIEW.md)。0.4.0 的合并、原文保护和原生 Markdown 导出实测见 [综合笔记验证](docs/COMBINED_NOTES.md)。
+
+## 当前边界
+
+- 安装目标暂限制 **Zotero 9.0.x**；已在 P520 **Zotero 9.0.1** 验证安装和运行；具体测试结果见验收记录。这不是全版本兼容声明。
+- 自动化默认关闭；只支持人为指定唯一执行端，没有跨设备选主。
+- UI 默认仅个人库；群组库、Zotero 10 多分类选择、保存后同步保真均未实机验收。
+- 现用提示词已冻结，已读取真实旧 Note 并修复多级合并笔记的识别；未知旧格式继续保守等待。
+- 暂不提供动态提示词包导入、自动 MinerU 服务调用、视觉输入或流式传输。当前使用已冻结的非流式请求契约。
+- Zotero 要求声明更新 URL；本预览通道提供空更新清单，不投放自动升级，也不使用旧版 latest 清单。
+
+## 可复现构建
+
+需要现有 Node.js 和 Python 3；无需安装 npm 运行时依赖（包内包含 MIT 许可的 markdown-it 14.1.0），不需要创建新环境。
+
+```sh
+npm ci --ignore-scripts
+npm run check
+npm test
+npm run build
+python3 scripts/verify-package.py
+```
+
+XPI 输出到 `dist/`。构建脚本不会安装插件、改写 Zotero profile、修改文献库或访问模型服务。重复构建产生相同 SHA-256。
+
+源码及历史版本采用 AGPL-3.0-or-later，见 [LICENSE](LICENSE) 与 [NOTICE.md](NOTICE.md)。v0.2.1 Release 源码已纳入 Git 历史；新实现使用独立偏好命名空间，不继承旧版自动运行开关。

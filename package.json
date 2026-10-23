@@ -1,0 +1,11 @@
+{
+  "name": "zotero-literature-flow",
+  "version": "0.4.7",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check addon/bootstrap.js && node --check addon/content/core.js && node --check addon/content/notes.js && node --check addon/content/workflow.js && node --check addon/content/panel.js",
+    "build": "python3 scripts/build.py"
+  }
+}

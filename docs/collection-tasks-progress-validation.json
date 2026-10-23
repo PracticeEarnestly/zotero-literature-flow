@@ -1,0 +1,65 @@
+{
+  "version": "0.4.7",
+  "validatedAt": "2026-10-23T01:22:25Z",
+  "host": "P520",
+  "zotero": "9.0.1",
+  "aiButler": {
+    "version": "5.1.0",
+    "active": true
+  },
+  "collection": {
+    "key": "YHCQNNUT",
+    "name": "references_KCNE1_IPF",
+    "items": 56
+  },
+  "menu": {
+    "type": "submenu",
+    "choices": 7,
+    "labels": [
+      "查看状态与任务表",
+      "检查本分类（只读）",
+      "按当前评分补齐缺失",
+      "补齐至 L1 概览",
+      "补齐至 L2 证据卡",
+      "补齐至 L3 深读",
+      "合并 AI 笔记（先预览）"
+    ]
+  },
+  "merge": {
+    "previewPapers": 32,
+    "sourceNotes": 32,
+    "stageRows": 42,
+    "duplicateStageGroups": 0,
+    "combinedNotes": 32,
+    "sourcesMovedToTrash": 32,
+    "privateBackups": 32,
+    "unrelatedNotesUnchanged": 23,
+    "modelRequestsAdded": 0
+  },
+  "progress": {
+    "finalLabel": "全部合并完成",
+    "finalCount": "32/32",
+    "value": 128,
+    "max": 128
+  },
+  "restartReadback": {
+    "combinedNotes": 32,
+    "sourcesInTrash": 32,
+    "aiSummaryTagsPresent": true,
+    "menuChoices": 7
+  },
+  "stateBeforeAfter": {
+    "equal": true,
+    "paused": false,
+    "auto": true,
+    "baseline": 1926,
+    "tasks": 7,
+    "modelAttempts": 7,
+    "activeTasks": 0
+  },
+  "temporaryDriverRemoved": true,
+  "xpi": {
+    "sha256": "a742c793d6328983d41acebf9e982b85d3b1bf04f5764fffdff7b183d1213185",
+    "bytes": 109822
+  }
+}

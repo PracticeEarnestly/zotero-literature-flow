@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/></head>
+<body>
+<header><span class="eyebrow">LITERATURE FLOW · 0.4.7 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
+<main>
+<section id="automationSection" aria-labelledby="automationHeading">
+<div class="automation-top"><div><h2 id="automationHeading">自动处理文献</h2><p id="automationStatus" class="automation-status" role="status">正在读取状态…</p><p id="automationHint" class="hint"></p></div><button id="automationToggle" class="primary" disabled="disabled">正在读取…</button></div>
+<p id="automationHistory" class="history-note"></p>
+<div class="rules"><p><strong>何时处理</strong><span>开启后新增文献，或实际修改评分时</span></p><p><strong>处理到哪一级</strong><span>未评分 / 0–1 星 → L1；2–4 星 → L2；5 星 → L3</span></p><p><strong>如何避免重复</strong><span>已有有效结果会跳过；待核对结果和不完整全文会等待</span></p></div>
+<div class="buttons"><button id="showTasks">查看任务</button><span id="automationCounts" class="hint"></span></div>
+<details id="advancedSettings"><summary>高级设置 · 模型连接与本机设置</summary>
+<p class="hint">首次使用时填写连接，点击“保存并开启”。请确保 Zotero 初始同步已完成，其他设备与旧方案的自动扫描已暂停。</p>
+<div class="grid"><label>模型服务地址<input id="baseURL" placeholder="http://主机:9527/v1"/></label><label>模型名称<input id="model"/></label></div>
+<label>API Key（留空保留现值）<input id="token" type="password" autocomplete="off"/></label>
+<div class="buttons"><button id="saveStart" class="primary">保存并开启</button><button id="probe">检查已保存的连接</button></div>
+<p class="hint">密钥保存在本机凭据库。保存连接会先暂停队列，再安全开启；已有历史记录保留。</p>
+<details><summary>更多控制 · 本机角色、手动队列与配置文件</summary>
+<label>本机用途<select id="role"><option value="reader-standby">只阅读，不执行任务</option><option value="executor">负责处理文献（仅此一台）</option><option value="disabled">停用工作流</option></select></label>
+<div class="buttons"><button id="save">仅保存并暂停</button><button id="resume">仅恢复手动队列</button><button id="pause">暂停全部任务</button><button id="autoOff">关闭自动触发</button></div>
+<p class="hint">“关闭自动触发”取消未完成的自动任务，手动任务仍可运行。“暂停全部任务”保留任务，稍后可继续。已发往模型的请求可能继续计算，但暂停后的旧响应不会写回。</p>
+<div class="buttons"><button id="exportConfig">导出共享配置</button><button id="importConfig">导入配置（重置待机）</button></div>
+</details></details></section>
+<section id="queueSection"><h2>任务队列</h2><p id="state"></p>
+<div class="buttons"><label class="inline" for="taskFilter">状态<select id="taskFilter"><option value="all">全部任务</option><option value="active">未结束</option><option value="running">正在处理</option><option value="waiting">等待中</option><option value="failed">失败</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></label><label class="inline" for="taskSearch">搜索<input id="taskSearch" type="search" placeholder="文献标题或条目 key"/></label><button id="queueRefresh">刷新任务</button></div>
+<div class="buttons"><button id="cancelTasks">取消勾选任务</button><button id="retryTasks">重试勾选的失败任务</button><span id="taskCount" role="status"></span></div>
+<p class="hint">每 3 秒自动刷新。取消仅影响勾选任务，已有笔记保留；重试可能重新调用模型。</p>
+<div class="tablewrap queuewrap"><table id="taskTable"><caption class="sr-only">本机 Literature Flow 任务及操作</caption><thead><tr><th><input id="selectTasks" type="checkbox" aria-label="勾选当前显示的可操作任务"/></th><th>文献</th><th>级别</th><th>状态</th><th>来源</th><th>尝试</th><th>说明</th><th>操作</th></tr></thead><tbody id="tasks"></tbody></table></div>
+</section>
+<section><h2>当前选择</h2><label class="inline"><input id="recursive" type="checkbox"/> 包含子分类</label>
+<div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选文献的任务</button></div>
+<div class="buttons"><button id="regenerate">重新生成指定级别…</button><button id="protect">创建旧 Note 保护副本…</button><button id="report">导出只读报告</button><button id="consolidate">整合并清理分散笔记…</button><button id="exportMarkdown">导出综合笔记 Markdown</button></div>
+<p id="summary" class="hint"></p><div class="tablewrap"><table><thead><tr><th>文献</th><th>评分</th><th>L1 / L2 / L3</th><th>输入</th></tr></thead><tbody id="items"></tbody></table></div>
+<section id="mergePreviewSection" class="subsection" hidden="hidden"><h2>合并版本预览</h2><p id="mergePreviewSummary" class="hint"></p><div id="mergeProgress" class="progress-panel" hidden="hidden" role="status" aria-live="polite"><strong id="mergeProgressLabel">准备合并…</strong><progress id="mergeProgressBar" max="1" value="0"></progress><span id="mergeProgressCount" class="hint"></span></div><div class="tablewrap"><table><thead><tr><th>文献</th><th>级别</th><th>候选笔记</th><th>用于排序的时间</th><th>选择依据</th><th>处理结果</th></tr></thead><tbody id="mergePreviewRows"></tbody></table></div><div class="buttons"><button id="mergeApply" class="primary">确认合并并移入回收站</button><button id="mergeClose">关闭预览</button></div></section>
+<details><summary>确认主文 PDF 与已保存的 MinerU 文本</summary><p class="hint">仅单篇选择可绑定。请先检查 Markdown 确实来自该 PDF 且完整；本版本只发送文字。</p><pre id="attachments"></pre><div class="grid"><label>PDF 附件 key<input id="pdfKey"/></label><label>Markdown/HTML 附件 key（可留空）<input id="markdownKey"/></label></div><button id="bind">确认来源并绑定</button></details>
+</section>
+<p id="message" role="status" aria-live="polite"></p>
+<footer>预览版本：构建与模拟测试不等于 Zotero 实机验收。普通 Note 在停用插件后仍可阅读。</footer>
+</main><script src="panel.js"></script></body></html>
