@@ -6,11 +6,22 @@ const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
 const reasonLabels={'review-combined-note-format':'综合笔记结构已改变，请先核对','review-note-changed':'笔记同时被修改，已停止写入','review-conflicting-notes':'存在重复或冲突的笔记，请核对','output-tags-json':'标签格式无法解析；可先检查已存结果','checking-saved-response':'正在检查已存结果（不调用模型）','review-saved-response-missing':'已存结果缺失，需核对后重新请求','waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','explicit-retry':'等待重试'};
 const labels={complete:'完成',missing:'缺失',review:'待核对',conflict:'冲突',deleted:'结果已删除'};
+const inputModes={PDF_TEXT:'Zotero PDF 全文',MINERU_TEXT:'MinerU 全文'};
+function inputLabel(input){
+  if(typeof input==='string')return reasonLabels[input]||input;
+  if(!input||typeof input!=='object')return '输入状态未知';
+  const parts=[inputModes[input.mode]||input.mode||'文本输入'];
+  if(Number.isFinite(input.characters))parts.push(`${input.characters.toLocaleString('zh-CN')} 字符`);
+  const coverage=input.coverage;
+  if(coverage&&typeof coverage==='object'&&Number.isFinite(coverage.indexedPages)&&Number.isFinite(coverage.total))parts.push(`已索引 ${coverage.indexedPages}/${coverage.total} 页`);
+  else if(coverage==='user-confirmed')parts.push('已人工确认完整');
+  return parts.join(' · ');
+}
 function message(text){$('message').textContent=text;}
 async function refresh(){
   latest=await api.view(args,$('recursive').checked);
   $('items').replaceChildren();
-  for(const i of latest.items){const tr=make('tr');for(const text of [i.title,`${i.rating.value??'未评分'} (${i.rating.source}; ${i.rating.status})`,['L1','L2','L3'].map(s=>s+': '+labels[i.levels[s].state]+(i.levels[s].shared?' / 旧 Note':'')).join('\n'),typeof i.input==='string'?i.input:JSON.stringify(i.input)]){const td=make('td');td.textContent=text;tr.appendChild(td);}$('items').appendChild(tr);}
+  for(const i of latest.items){const tr=make('tr');for(const text of [i.title,`${i.rating.value??'未评分'} (${i.rating.source}; ${i.rating.status})`,['L1','L2','L3'].map(s=>s+': '+labels[i.levels[s].state]+(i.levels[s].shared?' / 旧 Note':'')).join('\n'),inputLabel(i.input)]){const td=make('td');td.textContent=text;tr.appendChild(td);}$('items').appendChild(tr);}
   $('summary').textContent=`选择 ${latest.items.length} 篇。只读预览不会请求模型或改写标签。补齐按有效 Note 判断，待核对条目不会自动重算。`;
   await refreshQueue();
   $('attachments').textContent=JSON.stringify(await api.attachments(args),null,2);

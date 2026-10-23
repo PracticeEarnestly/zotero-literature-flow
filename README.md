@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.4.4**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.4.5**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-[下载 XPI](dist/zotero-literature-flow-0.4.4.xpi) · [SHA-256](dist/zotero-literature-flow-0.4.4.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.4.5.xpi) · [SHA-256](dist/zotero-literature-flow-0.4.5.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 
@@ -31,7 +31,7 @@
 
 结果以 Markdown 编排，渲染为 Zotero 可直接阅读和编辑的普通子 Note。支持标题、加粗、列表、引用、代码块和表格；后续级别更新在同一条综合笔记中，其他级别的正文和人工补充保持原样。使用 `LF:Note` 与可同步的可见任务标记；通过 `AI-Summary` 标签接入原版 AI Butler 总结预览，不输出 h1/h2。程序维护 `AI:L1/L2/L3` 和既有允许值的 `Evidence:E0–E5`、`Data:` 标签，不更改人工评分。未知旧格式、单独完成标签或冲突结果均待核对。
 
-0.4.4 的按层级择新、整合和来源清理见 [验证记录](docs/LATEST_STAGE_MERGE.md)。0.4.1 的原版 AI 管家预览兼容见 [实机验证](docs/BUTLER_PREVIEW.md)。0.4.0 的合并、原文保护和原生 Markdown 导出实测见 [综合笔记验证](docs/COMBINED_NOTES.md)。
+0.4.5 的输入状态中文显示见 [验证记录](docs/INPUT_DISPLAY.md)。0.4.4 的按层级择新、整合和来源清理见 [验证记录](docs/LATEST_STAGE_MERGE.md)。0.4.1 的原版 AI 管家预览兼容见 [实机验证](docs/BUTLER_PREVIEW.md)。0.4.0 的合并、原文保护和原生 Markdown 导出实测见 [综合笔记验证](docs/COMBINED_NOTES.md)。
 
 ## 当前边界
 
