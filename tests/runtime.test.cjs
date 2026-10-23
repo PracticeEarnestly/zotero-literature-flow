@@ -111,4 +111,5 @@ test('consolidation preview reports exact source and duplicate-stage counts with
  const r=runtime();await r.start();await r.configure();await r.args.api.pause();const C=require('../addon/content/core');
  for(const task of ['first','second']){const n=new r.Zotero.Item('note');n.setNote(C.render(task,{stage:'L2',revision:0,task,parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test'));n.addTag('LF:Note');await r.Zotero.DB.executeTransaction(()=>n.save());}
  const before=r.saves,p=await r.args.api.consolidationPreview(r.args,false);assert.equal(r.saves,before);assert.equal(p.papers,1);assert.equal(p.sources,2);assert.equal(p.duplicateStageGroups,1);assert.deepEqual(plain(p.rows[0].stages),['L2']);
+ assert.equal(p.rows[0].selections.length,1);assert.equal(p.rows[0].selections[0].stage,'L2');assert.equal(p.rows[0].selections[0].candidates.length,2);assert.equal(p.rows[0].selections[0].candidates.filter(c=>c.selected).length,1);assert(p.rows[0].selections[0].candidates.every(c=>c.basis));
 });

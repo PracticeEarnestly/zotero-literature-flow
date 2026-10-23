@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/></head>
 <body>
-<header><span class="eyebrow">LITERATURE FLOW · 0.4.5 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
+<header><span class="eyebrow">LITERATURE FLOW · 0.4.6 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
 <main>
 <section id="automationSection" aria-labelledby="automationHeading">
 <div class="automation-top"><div><h2 id="automationHeading">自动处理文献</h2><p id="automationStatus" class="automation-status" role="status">正在读取状态…</p><p id="automationHint" class="hint"></p></div><button id="automationToggle" class="primary" disabled="disabled">正在读取…</button></div>
@@ -31,6 +31,7 @@
 <div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选文献的任务</button></div>
 <div class="buttons"><button id="regenerate">重新生成指定级别…</button><button id="protect">创建旧 Note 保护副本…</button><button id="report">导出只读报告</button><button id="consolidate">整合并清理分散笔记…</button><button id="exportMarkdown">导出综合笔记 Markdown</button></div>
 <p id="summary" class="hint"></p><div class="tablewrap"><table><thead><tr><th>文献</th><th>评分</th><th>L1 / L2 / L3</th><th>输入</th></tr></thead><tbody id="items"></tbody></table></div>
+<section id="mergePreviewSection" class="subsection" hidden="hidden"><h2>合并版本预览</h2><p id="mergePreviewSummary" class="hint"></p><div class="tablewrap"><table><thead><tr><th>文献</th><th>级别</th><th>候选笔记</th><th>用于排序的时间</th><th>选择依据</th><th>处理结果</th></tr></thead><tbody id="mergePreviewRows"></tbody></table></div><div class="buttons"><button id="mergeApply" class="primary">确认合并并移入回收站</button><button id="mergeClose">关闭预览</button></div></section>
 <details><summary>确认主文 PDF 与已保存的 MinerU 文本</summary><p class="hint">仅单篇选择可绑定。请先检查 Markdown 确实来自该 PDF 且完整；本版本只发送文字。</p><pre id="attachments"></pre><div class="grid"><label>PDF 附件 key<input id="pdfKey"/></label><label>Markdown/HTML 附件 key（可留空）<input id="markdownKey"/></label></div><button id="bind">确认来源并绑定</button></details>
 </section>
 <p id="message" role="status" aria-live="polite"></p>

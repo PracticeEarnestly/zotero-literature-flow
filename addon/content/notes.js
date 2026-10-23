@@ -67,13 +67,36 @@ var LFNotes = (()=>{
     const tags=note.tags||[],butler=tags.some(t=>['AI-Generated','AI-Summary','AI-DeepRead'].includes(t));
     return butler?C.legacyStages(note,pack):[];
   }
-  const modified=note=>Date.parse(note.dateModified||note.dateAdded||'')||0;
-  const later=(a,b)=>modified(a.note)!==modified(b.note)?modified(a.note)-modified(b.note):(a.note.id||0)!==(b.note.id||0)?(a.note.id||0)-(b.note.id||0):String(a.note.key).localeCompare(String(b.note.key));
+  const timestamp=value=>Date.parse(value||'')||0;
+  const stamped=(time,basis)=>time?{time,at:new Date(time).toISOString(),basis}:null;
+  function butlerTimestamp(note){
+    const html=String(note.html||''),tokens=[
+      ...html.matchAll(/AI_BUTLER_LLM_META_B64URL::v1::([A-Za-z0-9_-]+)/g),
+      ...html.matchAll(/data-ai-butler-llm-meta=["']([A-Za-z0-9_-]+)["']/g)
+    ].map(m=>m[1]);
+    for(const token of new Set(tokens))try{
+      const padded=token.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-token.length%4)%4),binary=atob(padded),bytes=Uint8Array.from(binary,c=>c.charCodeAt(0)),meta=JSON.parse(new TextDecoder().decode(bytes)),time=timestamp(meta.generatedAt);
+      if(time)return stamped(time,'AI 生成时间');
+    }catch{}
+    const visible=C.visible(html).match(/(?:生成时间|generated\s+at)\s*[:：]\s*(\d{4}[/-]\d{1,2}[/-]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i);
+    if(visible){const value=visible[1].replace(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/,'$1-$2-$3'),time=timestamp(value);if(time)return stamped(time,'AI 生成时间');}
+    return null;
+  }
+  function sourceTimestamp(note,record){
+    const created=stamped(timestamp(record?.created),'AI 生成时间');if(created)return created;
+    const butler=butlerTimestamp(note);if(butler)return butler;
+    const modified=stamped(timestamp(note.dateModified),'Zotero 修改时间');if(modified)return modified;
+    const added=stamped(timestamp(note.dateAdded),'Zotero 添加时间');if(added)return added;
+    return {time:0,at:null,basis:'无可用时间'};
+  }
+  const candidate=(note,block,current=false,rankNote=note)=>({note,block,current,rank:sourceTimestamp(rankNote,block.record),modified:timestamp(rankNote.dateModified),added:timestamp(rankNote.dateAdded)});
+  const later=(a,b)=>a.rank.time!==b.rank.time?a.rank.time-b.rank.time:a.modified!==b.modified?a.modified-b.modified:a.added!==b.added?a.added-b.added:(a.note.id||0)!==(b.note.id||0)?(a.note.id||0)-(b.note.id||0):String(a.note.key).localeCompare(String(b.note.key));
   function sourceBlock(note,stage,item,pack,formatted){
     const managed=managedRecords(note).find(r=>r.stage===stage);
     if(managed){const parsed=singleBody(withoutArchive(note));return {body:cleanBody(formatted[note.key]??parsed.body),record:{...parsed.record,originKey:parsed.record.originKey||note.key,previous:[...new Set([...(parsed.record.previous||[]),note.key])]}};}
     if(!sourceStages(note,pack).includes(stage))return null;
-    return {body:cleanBody(C.markdownHTML(legacyText(note,stage))),record:{stage,revision:0,task:'legacy:'+note.key+':'+stage,parent:item.key,scope:item.scope,prompt:'legacy-preserved',source:'LEGACY_TEXT',originKey:note.key,previous:[note.key]}};
+    const generated=butlerTimestamp(note);
+    return {body:cleanBody(C.markdownHTML(legacyText(note,stage))),record:{stage,revision:0,task:'legacy:'+note.key+':'+stage,parent:item.key,scope:item.scope,prompt:'legacy-preserved',source:'LEGACY_TEXT',created:generated?.at,originKey:note.key,previous:[note.key]}};
   }
   function assemble(item,pack,history,incoming=null,formatted={},options={}){
     const all=item.notes||[],live=all.filter(n=>!(n.tags||[]).includes('LF:Archive'));
@@ -83,11 +106,13 @@ var LFNotes = (()=>{
     parts.prefix=cleanBody(parts.prefix);parts.suffix=cleanBody(parts.suffix);
     const states=C.inspect(item,pack,history),blocks=parts.blocks;
     if(target&&C.records(target).some(r=>r.parent!==item.key||r.scope!==item.scope))throw new Error('review-note-owner');
+    const selections=[];
     if(options.latestOnly){
       for(const stage of C.stages){
         const sources=all.filter(n=>n.key!==target?.key&&!((n.tags||[]).includes('LF:Combined'))).flatMap(n=>{const block=sourceBlock(n,stage,item,pack,formatted);return block?[{note:n,block}]:[];});
-        const current=blocks[stage]&&{note:all.find(n=>n.key===blocks[stage].record.originKey)||target,block:blocks[stage],current:true};
-        const ranked=[...(current?[current]:[]),...sources].sort(later),chosen=ranked[ranked.length-1];
+        const origin=blocks[stage]&&all.find(n=>n.key===blocks[stage].record.originKey),current=blocks[stage]&&candidate(target,blocks[stage],true,origin||target);
+        const ranked=[...(current?[current]:[]),...sources.map(x=>candidate(x.note,x.block))].sort(later),chosen=ranked[ranked.length-1];
+        if(ranked.length)selections.push({stage,candidates:ranked.map(c=>({id:c.note.id,key:c.note.key,current:c.current,selected:c===chosen,at:c.rank.at,basis:c.rank.basis,dateModified:c.note.dateModified||null,dateAdded:c.note.dateAdded||null}))});
         if(chosen&&!chosen.current)blocks[stage]={...chosen.block,after:''};
       }
     }else for(const stage of C.stages){
@@ -102,8 +127,8 @@ var LFNotes = (()=>{
     const html=parts.prefix+available.map(s=>'<h3>['+s+'] '+titles[s]+'</h3>'+blocks[s].body).join('')+parts.suffix;
     const archive=options.latestOnly?[]:live.filter(n=>n.key!==target?.key&&(n.tags||[]).includes('LF:Note')&&C.records(n).length&&C.records(n).every(r=>blocks[r.stage]?.record.task===r.task)).map(n=>n.id);
     const retire=options.deleteSources?all.filter(n=>n.key!==target?.key&&!(n.tags||[]).includes('LF:Combined')&&sourceStages(n,pack).length).map(n=>n.id):[];
-    return {html,target,archive,retire,records:C.stages.filter(s=>blocks[s]).map(s=>blocks[s].record)};
+    return {html,target,archive,retire,selections,records:C.stages.filter(s=>blocks[s]).map(s=>blocks[s].record)};
   }
-  return {singleBody,split,assemble,legacyText,sourceStages,inferRecords};
+  return {singleBody,split,assemble,legacyText,sourceStages,inferRecords,sourceTimestamp};
 })();
 if(typeof module!=='undefined')module.exports=LFNotes;

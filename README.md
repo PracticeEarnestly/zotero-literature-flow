@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.4.5**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.4.6**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-[下载 XPI](dist/zotero-literature-flow-0.4.5.xpi) · [SHA-256](dist/zotero-literature-flow-0.4.5.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [AI 笔记合并设计](docs/AI_NOTE_MERGE_DESIGN.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.4.6.xpi) · [SHA-256](dist/zotero-literature-flow-0.4.6.xpi.sha256) · [设计与实现](docs/DESIGN.md) · [AI 笔记合并设计](docs/AI_NOTE_MERGE_DESIGN.md) · [0.4.6 实机验收](docs/GENERATION_AWARE_MERGE.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 const args=window.arguments[0],api=args.api,$=id=>document.getElementById(id);
-let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false;
+let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false,mergePreview;
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
@@ -18,6 +18,18 @@ function inputLabel(input){
   return parts.join(' · ');
 }
 function message(text){$('message').textContent=text;}
+function dateLabel(value){if(!value)return '无日期';const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false});}
+function renderMergePreview(preview){
+  mergePreview=preview;$('mergePreviewRows').replaceChildren();
+  for(const row of preview.rows)for(const selection of row.selections)for(const candidate of selection.candidates){
+    const tr=make('tr');if(candidate.selected)tr.className='selected';
+    const result=candidate.current?(candidate.selected?'保留当前综合笔记':'综合笔记中本级将被替换'):(candidate.selected?'采用内容；来源笔记移入回收站':'旧版本；来源笔记移入回收站');
+    for(const value of [row.title,selection.stage,candidate.key,dateLabel(candidate.at),candidate.basis,result]){const td=make('td');td.textContent=value;tr.appendChild(td);}
+    $('mergePreviewRows').appendChild(tr);
+  }
+  $('mergePreviewSummary').textContent=`${preview.papers} 篇文献 · ${preview.sources} 条明确识别的来源笔记 · ${preview.duplicateStageGroups} 组同级重复。绿色行是每一级将采用的版本。合并不调用模型。`;
+  $('mergePreviewSection').hidden=false;$('mergePreviewSection').scrollIntoView({behavior:'smooth'});
+}
 async function refresh(){
   latest=await api.view(args,$('recursive').checked);
   $('items').replaceChildren();
@@ -130,7 +142,9 @@ for(const action of ['fill','repair','retry','cancel','regenerate','protect'])bu
 button('bind',async()=>{if(confirm('确认该全文来自所选主文 PDF，并且正文内容完整？仅发送文字，不发送图像。')){await api.bind(args,$('pdfKey').value.trim(),$('markdownKey').value.trim());message('来源绑定已保存');}});
 button('exportConfig',()=>api.exportConfig(window));
 button('importConfig',async()=>{if(confirm('导入后重置为待机，清除本机端点、密钥与来源绑定。继续？')){await api.importConfig(window);await loadSettings();message('已导入并重置为待机');}});
-button('consolidate',async()=>{await refresh();const p=await api.consolidationPreview(args,$('recursive').checked);if(!p.sources)throw new Error('当前范围没有明确由 AI Butler / Literature Flow 生成的可整合笔记');if(confirm(`将在 ${p.papers} 篇文献中整合 ${p.sources} 条明确识别的 L1–L3 来源笔记。按 L1 → L2 → L3 排列；${p.duplicateStageGroups} 组同级重复结果只采用修改日期最新的一条。写入综合笔记并完成私有备份后，全部这些来源笔记移入 Zotero 回收站。不会调用模型。`)){const r=await api.consolidate(args,$('recursive').checked,{latestOnly:true,deleteSources:true});message(`已整合 ${r.length} 篇，${r.reduce((n,x)=>n+x.deleted,0)} 条明确识别的原分散笔记已移入回收站，可从 Zotero 回收站或私有备份恢复。无法明确识别的笔记未改动。`);}});
+button('consolidate',async()=>{await refresh();const p=await api.consolidationPreview(args,$('recursive').checked);if(!p.sources)throw new Error('当前范围没有明确由 AI Butler / Literature Flow 生成的可整合笔记');renderMergePreview(p);message('请核对下方版本选择依据，再确认合并。');});
+button('mergeApply',async()=>{if(!mergePreview?.sources)throw new Error('请先生成合并预览');const r=await api.consolidate(args,$('recursive').checked,{latestOnly:true,deleteSources:true});$('mergePreviewSection').hidden=true;mergePreview=null;message(`已整合 ${r.length} 篇，${r.reduce((n,x)=>n+x.deleted,0)} 条明确识别的原分散笔记已移入回收站，可从 Zotero 回收站或私有备份恢复。无法明确识别的笔记未改动。`);});
+$('mergeClose').addEventListener('click',()=>{$('mergePreviewSection').hidden=true;mergePreview=null;message('已关闭合并预览，未修改笔记。');});
 button('exportMarkdown',()=>api.exportMarkdown(window,args,$('recursive').checked));
 button('report',()=>api.exportReport(window,args,$('recursive').checked));
 async function loadSettings(){await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;}

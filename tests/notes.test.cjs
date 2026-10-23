@@ -54,6 +54,17 @@ test('destructive consolidation selects the newest note per stage and retires ev
  assert(p.html.indexOf('[L1]')<p.html.indexOf('[L2]'));assert(p.html.indexOf('[L2]')<p.html.indexOf('[L3]'));
 });
 
+test('true AI generation time outranks Zotero modification time and is exposed in the merge plan',()=>{
+ const managed=(id,created,modified,label)=>({id,key:'LF'+id,dateModified:modified,tags:['LF:Note'],html:C.render(label,{...record('L2',label),created},'Paper')});
+ const oldManaged=managed(20,'2026-01-01T00:00:00Z','2026-04-01 00:00:00','Old managed'),newManaged=managed(21,'2026-03-01T00:00:00Z','2026-02-01 00:00:00','New managed');
+ const managedPlan=N.assemble(item([oldManaged,newManaged]),pack,[],null,{}, {latestOnly:true,deleteSources:true});
+ assert(managedPlan.html.includes('New managed'));assert(!managedPlan.html.includes('Old managed'));assert.equal(managedPlan.selections[0].candidates.find(c=>c.selected).key,'LF21');assert.equal(managedPlan.selections[0].candidates.find(c=>c.selected).basis,'AI 生成时间');
+ const butler=(id,generatedAt,modified,label)=>{const meta=Buffer.from(JSON.stringify({generatedAt})).toString('base64url');return {id,key:'BUTLER'+id,dateModified:modified,tags:['AI-Summary'],html:`<!-- AI_BUTLER_LLM_META_B64URL::v1::${meta} --><p>${label}</p><p>DATA_AVAILABILITY: Public</p><p>DATA_ACCESSION: TEST</p>`};};
+ const oldButler=butler(30,'2026-01-01T00:00:00Z','2026-04-01 00:00:00','Old Butler'),newButler=butler(31,'2026-03-01T00:00:00Z','2026-02-01 00:00:00','New Butler');
+ const butlerPlan=N.assemble(item([oldButler,newButler]),pack,[],null,{}, {latestOnly:true,deleteSources:true}),selected=butlerPlan.selections[0].candidates.find(c=>c.selected);
+ assert(butlerPlan.html.includes('New Butler'));assert(!butlerPlan.html.includes('Old Butler'));assert.equal(selected.key,'BUTLER31');assert.equal(selected.at,'2026-03-01T00:00:00.000Z');assert.equal(selected.basis,'AI 生成时间');
+});
+
 test('newer dispersed stage replaces its older combined origin while other combined stages stay intact',()=>{
  const oldL1=note('L1',1);oldL1.dateModified='2026-01-01 00:00:00';const base=asNote(N.assemble(item([oldL1,note('L2',2)]),pack,[]));base.dateModified='2026-04-01 00:00:00';
  const replacement=note('L1',3);replacement.dateModified='2026-03-01 00:00:00';replacement.html=replacement.html.replace('Result','Replacement result');

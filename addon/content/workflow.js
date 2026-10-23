@@ -248,7 +248,8 @@ var LiteratureFlow = (() => {
         const sources=item.notes.filter(n=>!n.tags.includes('LF:Combined')).map(n=>({note:n,stages:N.sourceStages(n,pack)})).filter(x=>x.stages.length);
         if(!sources.length)continue;
         const duplicates=C.stages.filter(stage=>sources.filter(x=>x.stages.includes(stage)).length>1);
-        rows.push({id:item.id,key:item.key,title:item.title,sources:sources.length,stages:C.stages.filter(stage=>sources.some(x=>x.stages.includes(stage))),duplicates});
+        const plan=N.assemble(item,pack,engine.state.tasks,null,{}, {latestOnly:true,deleteSources:true});
+        rows.push({id:item.id,key:item.key,title:item.title,sources:sources.length,stages:C.stages.filter(stage=>sources.some(x=>x.stages.includes(stage))),duplicates,selections:plan.selections});
       }
       return {papers:rows.length,sources:rows.reduce((n,r)=>n+r.sources,0),duplicateStageGroups:rows.reduce((n,r)=>n+r.duplicates.length,0),rows};
     },
