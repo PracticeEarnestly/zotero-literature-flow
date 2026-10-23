@@ -22,6 +22,11 @@ function runtime(){
  return {context,Zotero,files,menus,timers,parent,lib,get requests(){return requests;},get saves(){return saves;},get commits(){return commits;},get args(){return args;},async start(){await context.LiteratureFlow.startup();menus[0].menus[0].onCommand(null,{items:[parent]});},async configure(){await args.api.configure({role:'executor',baseURL:'http://localhost:9527/v1',model:'test'},'local-test-key');await args.api.resume();},async tick(){await timers.shift().fn();}};
 }
 test('host adapter startup is standby, menus register once, selection is read-only',async()=>{const r=runtime();await r.start();assert.equal(r.menus.length,3);const v=await r.args.api.view(r.args,false);assert.equal(v.role,'reader-standby');assert.equal(r.requests,0);assert.equal(r.saves,0);assert.equal(v.items[0].input.mode,'PDF_TEXT');await r.context.LiteratureFlow.shutdown();});
+test('collection context submenu offers direct task choices and passes the chosen action',async()=>{
+ const r=runtime();await r.start();const menu=r.menus.find(m=>m.target==='main/library/collection'),submenu=menu.menus[0];assert.equal(submenu.menuType,'submenu');assert.equal(submenu.menus.length,7);
+ submenu.menus[4].onCommand(null,{items:[],collection:{id:2}});assert.equal(r.args.initialAction,'fill-l2');assert.deepEqual(plain(r.args.collections),[2]);
+ submenu.menus[6].onCommand(null,{items:[],collection:{id:2}});assert.equal(r.args.initialAction,'merge');
+});
 test('host adapter writes via one short Zotero transaction after persisting response',async()=>{const r=runtime();await r.start();await r.configure();await r.args.api.action(r.args,false,'fill',1);await r.tick();assert.equal(r.requests,1);assert.equal(r.commits,1);assert(r.files.has('/profile/literature-flow-v1/state.json'));assert([...r.files.keys()].some(k=>k.includes('/responses/')));assert(r.parent.tags.includes('AI:L1'));assert(!r.parent.tags.includes('AI:L3'));await r.context.LiteratureFlow.shutdown();});
 test('host adapter repair without inference and normalized attachment selection',async()=>{const r=runtime();await r.start();await r.configure();await r.args.api.action(r.args,false,'fill',1);await r.tick();r.parent.tags=[];await r.args.api.action({...r.args,selection:[1,2]},false,'repair',0);assert.equal(r.requests,1);assert.deepEqual(r.parent.tags,['AI:L1']);const view=await r.args.api.view({...r.args,selection:[1,2]},false);assert.equal(view.items.length,1);});
 test('host adapter nested/overlapping collection scope deduplicates parents',async()=>{const r=runtime();await r.start();const view=await r.args.api.view({...r.args,collections:[2,3]},true);assert.equal(view.items.length,1);});
@@ -102,9 +107,15 @@ test('latest-only consolidation moves recognized source notes to trash after a d
  const old=new r.Zotero.Item('note');old.dateModified='2026-01-01 00:00:00';old.setNote(C.render('Older',{stage:'L2',revision:0,task:'older',parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test'));old.addTag('LF:Note');
  const latest=new r.Zotero.Item('note');latest.dateModified='2026-02-01 00:00:00';latest.setNote(C.render('**Latest**',{stage:'L2',revision:0,task:'latest',parent:r.parent.key,scope:'user:123',source:'PDF_TEXT',prompt:pack.id,previous:[]},'Test'));latest.addTag('LF:Note');
  await r.Zotero.DB.executeTransaction(async()=>{await old.save();await latest.save();});
- const beforeRequests=r.requests,result=await r.args.api.consolidate(r.args,false,{latestOnly:true,deleteSources:true});
+ const beforeRequests=r.requests,progress=[],result=await r.args.api.consolidate(r.args,false,{latestOnly:true,deleteSources:true,onProgress:p=>progress.push(p)});
  assert.equal(result[0].deleted,2);assert.equal(old.deleted,true);assert.equal(latest.deleted,true);assert.equal(r.requests,beforeRequests);assert([...r.files.keys()].some(p=>p.includes('/note-backups/')));
+ assert.deepEqual([...new Set(progress.map(p=>p.phase))],['start','checking','backup','write','trash','complete','done']);assert(progress.every(p=>p.total===1));
  const notes=(await r.Zotero.Items.getAsync(r.parent.notes)).filter(n=>!n.deleted);assert.equal(notes.length,1);assert(notes[0].getNote().includes('<strong>Latest</strong>'));assert(notes[0].getTags().some(t=>t.tag==='AI-Summary'));
+});
+
+test('destructive collection consolidation skips papers without recognized source notes',async()=>{
+ const r=runtime();await r.start();await r.configure();const progress=[],result=await r.args.api.consolidate(r.args,false,{latestOnly:true,deleteSources:true,onProgress:p=>progress.push(p)});
+ assert.deepEqual(plain(result),[]);assert.deepEqual(plain(progress),[{phase:'start',current:0,total:0,title:''},{phase:'done',current:0,total:0,title:''}]);assert.equal(r.saves,0);assert.equal(r.requests,0);
 });
 
 test('consolidation preview reports exact source and duplicate-stage counts without writes',async()=>{

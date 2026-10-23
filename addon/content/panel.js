@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
-const args=window.arguments[0],api=args.api,$=id=>document.getElementById(id);
-let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false,mergePreview;
+const args=window.arguments[0],api=args.api,$=id=>document.getElementById(id),initialAction=args.initialAction||'overview';
+let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false,mergePreview,mergeBusy=false;
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
@@ -18,9 +18,17 @@ function inputLabel(input){
   return parts.join(' · ');
 }
 function message(text){$('message').textContent=text;}
+const mergePhaseLabels={start:'正在准备合并',checking:'正在核对最新笔记',backup:'正在保存私有备份',write:'正在写入综合笔记',trash:'正在将来源笔记移入回收站',complete:'本篇处理完成',done:'全部合并完成'};
+const mergePhaseStep={start:0,checking:0,backup:1,write:2,trash:3,complete:4,done:4};
+function mergeProgress(progress,error=false){
+  const box=$('mergeProgress'),bar=$('mergeProgressBar'),total=progress.total||mergePreview?.papers||1,current=progress.current||0;
+  box.hidden=false;box.classList.toggle('error',error);bar.max=Math.max(1,total*4);bar.value=progress.phase==='done'?bar.max:Math.min(bar.max,Math.max(0,(Math.max(1,current)-1)*4+(mergePhaseStep[progress.phase]||0)));
+  $('mergeProgressLabel').textContent=error?'合并已停止':mergePhaseLabels[progress.phase]||'正在处理';
+  $('mergeProgressCount').textContent=error?String(progress.error||'未知错误'):`${current||0}/${total}${progress.title?' · '+progress.title:''}`;
+}
 function dateLabel(value){if(!value)return '无日期';const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false});}
 function renderMergePreview(preview){
-  mergePreview=preview;$('mergePreviewRows').replaceChildren();
+  mergePreview=preview;$('mergeApply').textContent='确认合并并移入回收站';$('mergePreviewRows').replaceChildren();
   for(const row of preview.rows)for(const selection of row.selections)for(const candidate of selection.candidates){
     const tr=make('tr');if(candidate.selected)tr.className='selected';
     const result=candidate.current?(candidate.selected?'保留当前综合笔记':'综合笔记中本级将被替换'):(candidate.selected?'采用内容；来源笔记移入回收站':'旧版本；来源笔记移入回收站');
@@ -28,7 +36,14 @@ function renderMergePreview(preview){
     $('mergePreviewRows').appendChild(tr);
   }
   $('mergePreviewSummary').textContent=`${preview.papers} 篇文献 · ${preview.sources} 条明确识别的来源笔记 · ${preview.duplicateStageGroups} 组同级重复。绿色行是每一级将采用的版本。合并不调用模型。`;
-  $('mergePreviewSection').hidden=false;$('mergePreviewSection').scrollIntoView({behavior:'smooth'});
+  $('mergeProgress').hidden=true;$('mergePreviewSection').hidden=false;$('mergePreviewSection').scrollIntoView({behavior:'smooth'});
+}
+async function openMergePreview(){
+  $('mergePreviewSection').hidden=false;$('mergeProgress').hidden=false;$('mergeProgress').classList.remove('error');$('mergeProgressBar').removeAttribute('value');$('mergeProgressLabel').textContent='正在扫描可合并笔记…';$('mergeProgressCount').textContent='不会请求模型或修改笔记';$('mergeApply').disabled=true;
+  message('正在生成合并预览，请稍候…');
+  try{const p=await api.consolidationPreview(args,$('recursive').checked);if(!p.sources)throw new Error('当前范围没有明确由 AI Butler / Literature Flow 生成的可整合笔记');renderMergePreview(p);message('请核对下方版本选择依据，再确认合并。');}
+  catch(e){mergePreview=null;mergeProgress({phase:'error',current:0,total:1,error:e.message||String(e)},true);message(e.message||String(e));}
+  finally{$('mergeApply').disabled=!mergePreview?.sources;}
 }
 async function refresh(){
   latest=await api.view(args,$('recursive').checked);
@@ -136,17 +151,37 @@ button('saveStart',async()=>{
   }finally{automationBusy=false;await refreshQueue();}
 });
 button('autoOff',async()=>{await api.disableAuto();message('自动化已关闭');});
-for(const action of ['fill','repair','retry','cancel','regenerate','protect'])button(action,async()=>{
-  await refresh();if(confirm(preview(action))){await api.action(args,$('recursive').checked,action,Number($('level').value));message('操作已提交；请查看队列和条目状态。');}
-});
+async function runWorkflowAction(action,refreshFirst=true){
+  const el=$(action);el.disabled=true;
+  try{if(refreshFirst)await refresh();if(confirm(preview(action))){message('正在提交任务…');await api.action(args,$('recursive').checked,action,Number($('level').value));message('操作已提交；请查看队列和条目状态。');await refreshQueue();}}
+  catch(e){message(e.message||String(e));}finally{el.disabled=false;}
+}
+for(const action of ['fill','repair','retry','cancel','regenerate','protect'])$(action).addEventListener('click',()=>runWorkflowAction(action));
 button('bind',async()=>{if(confirm('确认该全文来自所选主文 PDF，并且正文内容完整？仅发送文字，不发送图像。')){await api.bind(args,$('pdfKey').value.trim(),$('markdownKey').value.trim());message('来源绑定已保存');}});
 button('exportConfig',()=>api.exportConfig(window));
 button('importConfig',async()=>{if(confirm('导入后重置为待机，清除本机端点、密钥与来源绑定。继续？')){await api.importConfig(window);await loadSettings();message('已导入并重置为待机');}});
-button('consolidate',async()=>{await refresh();const p=await api.consolidationPreview(args,$('recursive').checked);if(!p.sources)throw new Error('当前范围没有明确由 AI Butler / Literature Flow 生成的可整合笔记');renderMergePreview(p);message('请核对下方版本选择依据，再确认合并。');});
-button('mergeApply',async()=>{if(!mergePreview?.sources)throw new Error('请先生成合并预览');const r=await api.consolidate(args,$('recursive').checked,{latestOnly:true,deleteSources:true});$('mergePreviewSection').hidden=true;mergePreview=null;message(`已整合 ${r.length} 篇，${r.reduce((n,x)=>n+x.deleted,0)} 条明确识别的原分散笔记已移入回收站，可从 Zotero 回收站或私有备份恢复。无法明确识别的笔记未改动。`);});
-$('mergeClose').addEventListener('click',()=>{$('mergePreviewSection').hidden=true;mergePreview=null;message('已关闭合并预览，未修改笔记。');});
+$('consolidate').addEventListener('click',()=>openMergePreview());
+$('mergeApply').addEventListener('click',async()=>{
+  if(mergeBusy)return;if(!mergePreview?.sources){message('请先生成合并预览');return;}
+  mergeBusy=true;$('mergeApply').disabled=true;$('mergeClose').disabled=true;document.body.setAttribute('aria-busy','true');
+  const planned={selection:mergePreview.rows.map(r=>r.id),collections:[]};mergeProgress({phase:'start',current:0,total:mergePreview.papers,title:''});message('合并已开始。正在核对笔记并创建恢复备份…');
+  try{
+    const r=await api.consolidate(planned,false,{latestOnly:true,deleteSources:true,onProgress:mergeProgress});
+    mergeProgress({phase:'done',current:r.length,total:mergePreview.papers,title:''});
+    $('mergeApply').textContent='合并完成';mergePreview=null;message(`已整合 ${r.length} 篇，${r.reduce((n,x)=>n+x.deleted,0)} 条明确识别的原分散笔记已移入回收站。私有备份已完成，可从 Zotero 回收站或备份恢复。`);
+  }catch(e){mergeProgress({phase:'error',current:0,total:mergePreview?.papers||1,error:e.message||String(e)},true);message('合并停止：'+(e.message||String(e)));$('mergeApply').disabled=false;}
+  finally{mergeBusy=false;$('mergeClose').disabled=false;document.body.removeAttribute('aria-busy');}
+});
+$('mergeClose').addEventListener('click',()=>{if(mergeBusy)return;$('mergePreviewSection').hidden=true;mergePreview=null;$('mergeApply').textContent='确认合并并移入回收站';message('已关闭合并预览，未修改笔记。');});
 button('exportMarkdown',()=>api.exportMarkdown(window,args,$('recursive').checked));
 button('report',()=>api.exportReport(window,args,$('recursive').checked));
-async function loadSettings(){await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;}
+async function loadSettings(){
+  if(initialAction==='merge'){
+    latest=await api.settings();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;await refreshQueue();await openMergePreview();return;
+  }
+  await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;
+  const levels={'fill-rating':'0','fill-l1':'1','fill-l2':'2','fill-l3':'3'};
+  if(initialAction in levels){$('level').value=levels[initialAction];await runWorkflowAction('fill',false);}else if(initialAction==='check')message('本分类只读检查完成，没有提交任务。');
+}
 loadSettings().then(()=>{queueTimer=setInterval(()=>refreshQueue().catch(e=>message(e.message)),3000);}).catch(e=>message(e.message));
 window.addEventListener('unload',()=>clearInterval(queueTimer));
