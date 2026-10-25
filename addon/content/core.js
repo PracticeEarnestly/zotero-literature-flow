@@ -158,8 +158,13 @@ var LFCore = (() => {
     canRun() { return this.alive && this.state.role === 'executor' && !this.state.paused; }
     async controls(changes) {
       return this.serial(async () => {
+        const wasRunnable=this.canRun();
         Object.assign(this.state,changes);
-        if (!this.canRun()) for (const t of this.state.tasks) if (['queued','running','ready_to_commit'].includes(t.status)) { t.generation++; t.status='waiting'; t.reason='paused'; delete t.response; }
+        if (!this.canRun()) {
+          for (const t of this.state.tasks) if (['queued','running','ready_to_commit'].includes(t.status)) { t.generation++; t.status='waiting'; t.reason='paused'; delete t.response; }
+        } else if(!wasRunnable) {
+          for(const t of this.state.tasks) if(t.status==='waiting' && t.reason==='paused') {t.status='queued';t.reason='';t.nextAt=0;}
+        }
         await this.save();
       });
     }
@@ -242,8 +247,12 @@ var LFCore = (() => {
       let t, generation;
       try {
         const due=t=>['queued','running','waiting','ready_to_commit'].includes(t.status) && (!t.nextAt || t.nextAt<=this.p.now());
-        t=this.state.tasks.find(t=>t.cachedOnly&&due(t)) || this.state.tasks.find(due);
+        const candidates=this.state.tasks.filter(due);
+        // Pick the least recently checked task so a short retry interval cannot
+        // keep the head of a large waiting queue from ever reaching later work.
+        t=candidates.find(t=>t.cachedOnly) || candidates.reduce((old,current)=>!old || (current.lastCheckedAt||0)<(old.lastCheckedAt||0)?current:old,null);
         if(!t)return false;
+        t.lastCheckedAt=this.p.now();
         generation=t.generation;
         let item=await this.p.get(t.itemID);
         if(!this.valid(t,item,generation)) {t.status='cancelled';t.reason='eligibility-lost';await this.save();return true;}
@@ -306,6 +315,7 @@ var LFCore = (() => {
         const path=await this.p.findResponse(t.id,t.generation);
         if(path)t.response=path;
         if(t.status==='running')t.status='queued';
+        if(this.canRun() && t.status==='waiting' && t.reason==='paused'){t.status='queued';t.reason='';t.nextAt=0;}
       }
       await this.save();
     }

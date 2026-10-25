@@ -70,6 +70,20 @@ test('only program-controlled level and allowlisted evidence/data tags are emitt
 test('HTTP 401 fails once; HTTP 503 retries with a bounded budget',async()=>{for(const status of [401,503]){const f=fixture();await f.e.plan(f.item,1);f.p.request=async()=>{throw new Error('http-'+status);};await drain(f,10);assert.equal(f.e.state.tasks[0].status,'failed');assert.equal(f.e.state.tasks[0].attempts,status===401?1:3);}});
 test('single worker prevents concurrent inference',async()=>{const f=fixture();await f.e.plan(f.item,2);await Promise.all([f.e.step(),f.e.step(),f.e.step()]);assert.equal(f.calls,1);});
 test('pause clears old response pointer so resumed generation is not trapped in review',async()=>{const f=fixture();await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='ready_to_commit';t.response='old';await f.e.controls({paused:true});assert.equal(t.response,undefined);await f.e.controls({paused:false});await f.e.step();assert.equal(f.commits,1);});
+test('resume makes paused work visibly queued again',async()=>{
+ const f=fixture();await f.e.plan(f.item,1);await f.e.controls({paused:true});const t=f.e.state.tasks[0];assert.equal(t.reason,'paused');
+ await f.e.controls({paused:false});assert.equal(t.status,'queued');assert.equal(t.reason,'');assert.equal(t.nextAt,0);
+});
+test('startup recovery releases paused work when the saved executor is active',async()=>{
+ const f=fixture();await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='waiting';t.reason='paused';
+ await f.e.recover();assert.equal(t.status,'queued');assert.equal(t.reason,'');assert.equal(t.nextAt,0);
+});
+test('waiting tasks are checked fairly instead of starving later queue entries',async()=>{
+ const f=fixture(),seen=[];f.p.get=async id=>paper({id,key:'PAPER00'+id});f.p.input=async item=>{seen.push(item.id);throw new Error('waiting-local-pdf');};
+ for(let id=1;id<=8;id++)f.e.state.tasks.push({id:String(id),logical:'task/'+id,scope:'user:123',parent:'PAPER00'+id,itemID:id,stage:'L1',revision:0,mode:'automatic',previous:[],status:'waiting',reason:'waiting-local-pdf',generation:0,attempts:0,contract:pack.id,nextAt:0});
+ for(let i=0;i<8;i++){await f.e.step();f.advance();}
+ assert.deepEqual(seen,[1,2,3,4,5,6,7,8]);
+});
 test('late failure from a cancelled generation cannot fail an explicitly retried task',async()=>{const f=fixture();await f.e.plan(f.item,1);f.p.request=async()=>{await f.e.cancel([f.item]);await f.e.plan(f.item,1);throw new Error('http-401');};await f.e.step();assert.equal(f.e.state.tasks[0].status,'queued');});
 test('combined legacy Note independently recognizes L1, L2 and L3 blocks',()=>{
  const html='SUMMARY: A supported finding.\nDATA_AVAILABILITY: NotReported\nDATA_ACCESSION: Not reported\n'+['L2','L3'].map(s=>'['+s+'] '+(s==='L2'?'Evidence Card':'Deep Reading')+'\n'+pack.stages[s].sections.map(h=>h+'\nReal evidence.').join('\n')).join('\n');
@@ -102,7 +116,7 @@ test('task-table cancellation during inference invalidates the response without 
 test('task-table retry only revives selected failed tasks and requires an active executor',async()=>{
  const f=fixture();await f.e.plan(f.item,2);const [l1,l2]=f.e.state.tasks;l1.status='failed';l1.response='old-response';
  await f.e.controls({paused:true});await assert.rejects(()=>f.e.taskAction([l1.id],'retry'),/恢复执行队列/);await f.e.controls({paused:false});
- assert.equal(await f.e.taskAction([l1.id,l2.id],'retry'),1);assert.equal(l1.status,'queued');assert.equal(l1.response,undefined);assert.equal(l2.status,'waiting');
+ assert.equal(await f.e.taskAction([l1.id,l2.id],'retry'),1);assert.equal(l1.status,'queued');assert.equal(l1.response,undefined);assert.equal(l2.status,'queued');assert.equal(l2.reason,'');
 });
 test('read-only feed and deleted-item events never extend the personal baseline',async()=>{
  const f=fixture();await f.e.baseline([f.item]);f.e.state.auto=true;

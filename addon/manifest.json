@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Literature Flow",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Independent L1–L3 workflow; standby by default. Preview for Zotero 9.",
   "homepage_url": "https://github.com/PracticeEarnestly/zotero-literature-flow",
   "author": "Xiqing; derived workflow concepts from zotero-AI-Butler",
