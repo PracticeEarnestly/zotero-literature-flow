@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 var LiteratureFlow = (() => {
   const C=LFCore, N=LFNotes, PREF='extensions.zotero.literatureFlowV1.config', LOGIN='chrome://literature-flow';
-  let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve(),automationEpoch=0;
-  const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set();
-  const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],debounceMs:2500,intervalMs:5000,bindings:{}};
+  let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve(),automationEpoch=0,lastReconcileAt=0;
+  const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set(),fulltextAttempts=new Map();
+  const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],debounceMs:2500,intervalMs:5000,reconcileMs:300000,fulltextRetryMs:900000,bindings:{}};
   const uuid=()=>Services.uuid.generateUUID().toString().replace(/[{}]/g,'');
   const hash=text=>{
     const bytes=new TextEncoder().encode(text),h=Components.classes['@mozilla.org/security/hash;1'].createInstance(Components.interfaces.nsICryptoHash);
@@ -42,6 +42,40 @@ var LiteratureFlow = (() => {
     for(const lib of libs)result.push(...await normalized(await Zotero.Items.getAll(lib.libraryID,true,false)));
     return result;
   }
+  async function reconcileAuto() {
+    if(!engine?.canRun() || !engine.state.auto || !engine.state.enabledAt)return 0;
+    const libs=Zotero.Libraries.getAll().filter(l=>l.libraryID===Zotero.Libraries.userLibraryID || l.libraryType==='group' && config.allowedGroups.includes(l.groupID));
+    let changed=0;
+    for(const lib of libs)for(const item of await Zotero.Items.getAll(lib.libraryID,true,false)){
+      if(!item?.isRegularItem?.() || item.deleted || !allowed(item))continue;
+      const k=scope(item.libraryID)+'/'+item.key,r=C.rating(item.getField('extra'),item.getTags().map(t=>t.tag),engine.state.tagAdapter),old=engine.state.baseline[k];
+      if(old && old.value===r.value && old.status===r.status)continue;
+      const snapshot=await get(item.id);if(snapshot){await engine.observe(snapshot);changed++;}
+    }
+    return changed;
+  }
+  async function fulltextSource(pdf,path,stat) {
+    const row=await Zotero.Fulltext.getPages(pdf.id);
+    const stats=row ? {indexedPages:row.indexedPages,total:row.total} : null;
+    if(!stats || !stats.total || stats.indexedPages!==stats.total)return {reason:'waiting-fulltext-coverage'};
+    const cache=Zotero.Fulltext.getItemCacheFile(pdf).path;
+    if(!await IOUtils.exists(cache))return {reason:'waiting-fulltext-cache'};
+    const cacheStat=await IOUtils.stat(cache);
+    if(cacheStat.lastModified < stat.lastModified)return {reason:'waiting-stale-index'};
+    return {cache,stats};
+  }
+  async function ensureFulltext(pdf,path,stat) {
+    let source=await fulltextSource(pdf,path,stat);
+    if(!source.reason)return source;
+    const signature=[stat.size,stat.lastModified].join(':'),previous=fulltextAttempts.get(pdf.id),now=Date.now();
+    if(!previous || previous.signature!==signature || now-previous.at>=config.fulltextRetryMs){
+      fulltextAttempts.set(pdf.id,{signature,at:now});
+      try{await Zotero.Fulltext.indexItems([pdf.id],{complete:true});}
+      catch(e){Zotero.debug('[Literature Flow] full-text indexing failed for '+pdf.id+': '+e);}
+      source=await fulltextSource(pdf,path,stat);
+    }
+    return source;
+  }
   async function input(item) {
     const parent=await Zotero.Items.getAsync(item.id),atts=await Zotero.Items.getAsync(parent.getAttachments());
     const binding=config.bindings[item.scope+'/'+item.key];
@@ -61,16 +95,13 @@ var LiteratureFlow = (() => {
       if(binding.pdfSize!==st.size || binding.pdfModified!==st.lastModified || binding.markdownHash!==hash(raw))throw new Error('review-binding-source-changed');
       return {text,hash:hash(text),mode:'MINERU_TEXT',complete:true,pdfKey:pdf.key,attachmentKey:md.key,coverage:'user-confirmed',imagesSent:0};
     }
-    const row=await Zotero.Fulltext.getPages(pdf.id);
     // Zotero DB rows are proxies; never persist or JSON-serialize the row itself.
-    const stats=row ? {indexedPages:row.indexedPages,total:row.total} : null;
-    if(!stats || !stats.total || stats.indexedPages!==stats.total)throw new Error('waiting-fulltext-coverage');
-    const cache=Zotero.Fulltext.getItemCacheFile(pdf).path;
-    if(!await IOUtils.exists(cache))throw new Error('waiting-fulltext-cache');
-    const cacheStat=await IOUtils.stat(cache);
-    if(cacheStat.lastModified < st.lastModified)throw new Error('waiting-stale-index');
-    const text=await IOUtils.readUTF8(cache);
-    return {text,hash:hash(text+'|'+pdf.key+'|'+st.size+'|'+st.lastModified),mode:'PDF_TEXT',complete:!!text.trim(),pdfKey:pdf.key,coverage:stats,imagesSent:0};
+    // Request a complete native index once per file revision before leaving the
+    // task waiting. This closes the gap between attachment sync and L1 input.
+    const source=await ensureFulltext(pdf,path,st);
+    if(source.reason)throw new Error(source.reason);
+    const text=await IOUtils.readUTF8(source.cache);
+    return {text,hash:hash(text+'|'+pdf.key+'|'+st.size+'|'+st.lastModified),mode:'PDF_TEXT',complete:!!text.trim(),pdfKey:pdf.key,coverage:source.stats,imagesSent:0};
   }
   function endpoint(base) {
     const url=Services.io.newURI(base.trim());
@@ -171,7 +202,8 @@ var LiteratureFlow = (() => {
     engine.state.device ||= uuid();await engine.recover();
     if(engine.state.role!=='disabled')registerObserver();
     registerMenus();
-    if(engine.canRun() && engine.state.auto)for(const i of await allItems())await engine.observe(i);
+    if(engine.canRun() && engine.state.auto)await reconcileAuto();
+    lastReconcileAt=Date.now();
     schedule();
   }
   function registerObserver(){
@@ -189,7 +221,10 @@ var LiteratureFlow = (() => {
       },config.debounceMs));}
     }},['item'],'literature-flow-v1');
   }
-  function schedule(){if(stopped)return;timer=setTimeout(async()=>{try{await engine.step();}catch{Zotero.debug('[Literature Flow] worker error');}schedule();},config.intervalMs);}
+  function schedule(){if(stopped)return;timer=setTimeout(async()=>{try{
+    if(Date.now()-lastReconcileAt>=config.reconcileMs){lastReconcileAt=Date.now();await reconcileAuto();}
+    await engine.step();
+  }catch{Zotero.debug('[Literature Flow] worker error');}schedule();},config.intervalMs);}
   async function shutdown(){
     automationEpoch++;stopped=true;clearTimeout(timer);for(const t of debounce.values())clearTimeout(t);debounce.clear();
     if(observer)Zotero.Notifier.unregisterObserver(observer);observer=null;
@@ -307,7 +342,7 @@ var LiteratureFlow = (() => {
       await engine.controls({role:values.role});
       if(values.role==='disabled' && observer){Zotero.Notifier.unregisterObserver(observer);observer=null;}else if(values.role!=='disabled')registerObserver();
     },
-    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});},
+    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});await reconcileAuto();},
     async pause(){automationEpoch++;await engine.controls({paused:true});for(const c of controllers)c.abort();},
     async startAutomation({activateExecutor=false}={}){
       const epoch=++automationEpoch;
@@ -325,6 +360,7 @@ var LiteratureFlow = (() => {
       if(epoch!==automationEpoch)throw new Error('开启已中止：设置或暂停状态已改变');
       registerObserver();
       await engine.controls({role:'executor',auto:true,paused:false});
+      await reconcileAuto();
     },
     async enableAuto(){return api.startAutomation();},
     async disableAuto(){automationEpoch++;await engine.controls({auto:false});for(const t of engine.state.tasks)if(t.mode==='automatic' && t.status!=='completed'){t.status='cancelled';t.generation++;t.reason='automation-disabled';}await engine.save();},

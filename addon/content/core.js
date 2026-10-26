@@ -189,7 +189,11 @@ var LFCore = (() => {
         const k=item.scope+'/'+item.key, r=rating(item.extra,item.tags,this.state.tagAdapter), old=this.state.baseline[k];
         this.state.baseline[k]=r;
         const changed=old && (old.value !== r.value || old.status !== r.status);
-        const newItem=!old && item.dateAdded > this.state.enabledAt + 2000;
+        // The initial baseline already contains every item present when automation
+        // is enabled.  A later item absent from that baseline is new to this
+        // executor even when Zotero sync preserves an older dateAdded value from
+        // the source device.
+        const newItem=!old;
         if (changed || newItem) await this._plan(item,target(r),'automatic',false, true);
         await this.save();
       });

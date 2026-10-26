@@ -16,9 +16,11 @@ async function drain(f,n=5){for(let i=0;i<n;i++){await f.e.step();f.advance();}}
 
 test('A01 baseline and ordinary metadata/note edits never qualify historical five-star papers',async()=>{
  const f=fixture();await f.e.baseline([f.item]);f.e.state.auto=true;f.item.title='Edited';await f.e.observe(f.item);f.item.notes.push({key:'HUMAN',html:'Human note',tags:[]});await f.e.observe(f.item);assert.equal(f.e.state.tasks.length,0);
- const old=paper({id:2,key:'OLD00002',dateAdded:5000});await f.e.observe(old);assert.equal(f.e.state.tasks.length,0);
 });
-test('A02 repeated new-item events produce exactly one L1 task and note',async()=>{
+test('A02 a newly synced item is planned even when its source-device dateAdded predates automation',async()=>{
+ const f=fixture(paper({id:2,key:'SYNC0002',extra:'',dateAdded:5000}));await f.e.baseline([]);f.e.state.auto=true;await f.e.observe(f.item);assert.deepEqual(f.e.state.tasks.map(t=>t.stage),['L1']);
+});
+test('A03 repeated new-item events produce exactly one L1 task and note',async()=>{
  const f=fixture(paper({extra:'',dateAdded:20000}));await f.e.baseline([]);f.e.state.auto=true;await Promise.all([f.e.observe(f.item),f.e.observe(f.item),f.e.observe(f.item)]);await drain(f);assert.equal(f.e.state.tasks.length,1);assert.equal(f.calls,1);assert.equal(f.commits,1);
 });
 test('A03 two-star papers execute L1 then L2 only',async()=>{const f=fixture(paper({extra:'rate: 2'}));await f.e.plan(f.item,C.target(C.rating(f.item.extra)));await drain(f);assert.equal(f.calls,2);assert.deepEqual(f.e.state.tasks.map(t=>t.stage),['L1','L2']);});
