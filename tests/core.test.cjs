@@ -137,11 +137,22 @@ test('tag JSON still rejects malformed syntax, ambiguous quotes, wrong schema an
  assert.throws(()=>C.validate(withTags('{“evidence”: “Evidence:E2”}'),'L1',pack),/output-tags-schema/);
  assert.throws(()=>C.validate(withTags('{“evidence”: [“Evidence:E2”, “Evidence:E3”]}'),'L1',pack),/output-conflicting-evidence/);
 });
-async function cachedFailure(f){await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='failed';t.reason='output-tags-json';t.attempts=1;t.response=await f.p.writeResponse(t.id,t.generation,{response:withTags('{“evidence": [“Evidence:E2”]}'),input:await f.p.input(),generation:t.generation,contract:pack.id,dependencies:[]});return t;}
+test('an unmatched closing reasoning tag discards only the leaked prefix and validates the final answer',()=>{
+ const final=output('L1'),r={...final,text:'draft ZOTERO_TAGS_JSON_START ...\n</think>\n'+final.text};
+ const result=C.validate(r,'L1',pack);assert(result.text.startsWith('研究者'));assert.equal(result.text.includes('draft'),false);
+});
+test('the observed duplicated L3 appraisal word is normalized without relaxing other sections',()=>{
+ const r=output('L3');r.text=r.text.replace('## Statistical and Methodological Appraisal','## 10. Statistical and Methodological App appraisal');
+ const result=C.validate(r,'L3',pack);assert(result.text.includes('## 10. Statistical and Methodological Appraisal'));assert(!result.text.includes('App appraisal'));
+});
+async function cachedFailure(f,reason='output-tags-json',response=withTags('{“evidence": [“Evidence:E2”]}')){await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='failed';t.reason=reason;t.attempts=1;t.response=await f.p.writeResponse(t.id,t.generation,{response,input:await f.p.input(),generation:t.generation,contract:pack.id,dependencies:[]});return t;}
 test('revalidate saved tags commits once without inference or generation changes',async()=>{
  const f=fixture(),t=await cachedFailure(f),generation=t.generation;
  assert.equal(await f.e.taskAction([t.id],'revalidate'),1);await f.e.step();assert.equal(f.calls,0);assert.equal(f.commits,1);assert.equal(t.attempts,1);assert.equal(t.generation,generation);assert.equal(t.status,'completed');
  assert.equal(await f.e.taskAction([t.id],'revalidate'),0);await f.e.step();assert.equal(f.commits,1);
+});
+test('all saved output validation failures can be rechecked without another model request',async()=>{
+ for(const reason of ['output-tags-boundary','output-missing-sections','output-tags-json']){const f=fixture(),t=await cachedFailure(f,reason,output('L1'));assert.equal(await f.e.taskAction([t.id],'revalidate'),1);await f.e.step();assert.equal(t.status,'completed');assert.equal(f.calls,0);}
 });
 test('revalidate never falls back to inference when saved response is absent or changes',async()=>{
  for(const change of ['absent','source','contract','generation']){const f=fixture(),t=await cachedFailure(f);await f.e.taskAction([t.id],'revalidate');

@@ -246,7 +246,7 @@ var LiteratureFlow = (() => {
     async queue(){
       const tasks=[];
       for(const t of engine.state.tasks){const p=await Zotero.Items.getAsync(t.itemID);
-        tasks.push({...Object.fromEntries(['id','parent','stage','status','reason','mode','revision','attempts'].map(k=>[k,t[k]])),canRevalidate:t.status==='failed'&&t.reason==='output-tags-json'&&!!t.response,title:p?.getField('title')||t.parent});
+        tasks.push({...Object.fromEntries(['id','parent','stage','status','reason','mode','revision','attempts'].map(k=>[k,t[k]])),canRevalidate:t.status==='failed'&&/^output-/.test(t.reason||'')&&!!t.response,title:p?.getField('title')||t.parent});
       }
       return {role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,baselineCount:Object.keys(engine.state.baseline).length,connectionReady:!!config.baseURL.trim()&&!!config.model.trim(),contract:pack.id,tasks};
     },

@@ -58,7 +58,15 @@ var LFCore = (() => {
   function validate(response, stage, pack) {
     if (response.finish !== 'stop') throw new Error('output-incomplete: finish_reason must be stop');
     let text = String(response.text || '').replace(/<(think|thinking|reasoning|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi,'').trim();
-    if (!text || /<(think|thinking|reasoning|analysis)\b/i.test(text)) throw new Error('output-empty-or-reasoning');
+    // Some OpenAI-compatible endpoints omit the opening reasoning tag while
+    // still returning a closing </think>. Discard only the closed prefix and
+    // keep validating the final answer with the ordinary strict contract.
+    const leaked=[...text.matchAll(/<\/(?:think|thinking|reasoning|analysis)>/gi)].at(-1);
+    if(leaked)text=text.slice(leaked.index+leaked[0].length).trim();
+    if (!text || /<\/?(think|thinking|reasoning|analysis)\b/i.test(text)) throw new Error('output-empty-or-reasoning');
+    // Repair one observed, unambiguous duplicated word in the required L3
+    // heading. The section body and every other required heading remain strict.
+    text=text.replace(/^(\s*#{1,6}\s+(?:\d+[.)、：:]\s*)?Statistical and Methodological)\s+App\s+appraisal\s*$/gim,'$1 Appraisal');
     const blocks = [...text.matchAll(/ZOTERO_TAGS_JSON_START\s*([\s\S]*?)\s*ZOTERO_TAGS_JSON_END/g)];
     if (blocks.length !== 1 || (text.match(/ZOTERO_TAGS_JSON_(START|END)/g)||[]).length !== 2) throw new Error('output-tags-boundary');
     const parsed = parseTagJSON(blocks[0][1]);
@@ -229,7 +237,7 @@ var LFCore = (() => {
           if(!selected.has(t.id))continue;
           if(action==='cancel' && !['completed','cancelled'].includes(t.status)){
             t.status='cancelled';t.reason='user';t.generation++;count++;
-          }else if(action==='revalidate' && t.status==='failed' && t.reason==='output-tags-json' && t.response){
+          }else if(action==='revalidate' && t.status==='failed' && /^output-/.test(t.reason||'') && t.response){
             t.status='queued';t.reason='checking-saved-response';t.cachedOnly=true;t.nextAt=0;count++;
           }else if(action==='retry' && t.status==='failed'){
             t.status='queued';t.reason='explicit-retry';t.generation++;t.attempts=0;t.nextAt=0;delete t.response;delete t.cachedOnly;count++;
