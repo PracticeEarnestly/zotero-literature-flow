@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>Literature Flow</title><meta charset="utf-8"/><link rel="stylesheet" href="panel.css"/></head>
 <body>
-<header><span class="eyebrow">LITERATURE FLOW · 0.4.9 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
+<header><span class="eyebrow">LITERATURE FLOW · 0.5.2 PREVIEW</span><h1>文献工作流</h1><p>按评分自动补齐 L1–L3，进度与操作集中在任务表。</p></header>
 <main>
 <section id="automationSection" aria-labelledby="automationHeading">
 <div class="automation-top"><div><h2 id="automationHeading">自动处理文献</h2><p id="automationStatus" class="automation-status" role="status">正在读取状态…</p><p id="automationHint" class="hint"></p></div><button id="automationToggle" class="primary" disabled="disabled">正在读取…</button></div>
@@ -21,11 +21,27 @@
 <p class="hint">“关闭自动触发”取消未完成的自动任务，手动任务仍可运行。“暂停全部任务”保留任务，稍后可继续。已发往模型的请求可能继续计算，但暂停后的旧响应不会写回。</p>
 <div class="buttons"><button id="exportConfig">导出共享配置</button><button id="importConfig">导入配置（重置待机）</button></div>
 </details></details></section>
-<section id="queueSection"><h2>任务队列</h2><p id="state"></p>
-<div class="buttons"><label class="inline" for="taskFilter">状态<select id="taskFilter"><option value="all">全部任务</option><option value="active">未结束</option><option value="running">正在处理</option><option value="waiting">等待中</option><option value="failed">失败</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select></label><label class="inline" for="taskSearch">搜索<input id="taskSearch" type="search" placeholder="文献标题或条目 key"/></label><button id="queueRefresh">刷新任务</button></div>
-<div class="buttons"><button id="cancelTasks">取消勾选任务</button><button id="retryTasks">重试勾选的失败任务</button><span id="taskCount" role="status"></span></div>
-<p class="hint">每 3 秒自动刷新。取消仅影响勾选任务，已有笔记保留；重试可能重新调用模型。</p>
-<div class="tablewrap queuewrap"><table id="taskTable"><caption class="sr-only">本机 Literature Flow 任务及操作</caption><thead><tr><th><input id="selectTasks" type="checkbox" aria-label="勾选当前显示的可操作任务"/></th><th>文献</th><th>级别</th><th>状态</th><th>来源</th><th>尝试</th><th>说明</th><th>操作</th></tr></thead><tbody id="tasks"></tbody></table></div>
+<section id="queueSection" aria-labelledby="queueHeading">
+<div class="queue-heading"><div><h2 id="queueHeading">任务队列</h2><p id="state" class="queue-state"></p></div><button id="queueRefresh" class="queue-refresh">刷新任务</button></div>
+<div class="queue-filter-panel">
+<div class="queue-filter-field"><span id="taskFilterLabel" class="field-label">任务状态</span><div id="taskFilters" class="task-filters" role="group" aria-labelledby="taskFilterLabel">
+<button type="button" class="task-filter active" data-task-filter="all" data-label="全部" aria-pressed="true"><span>全部</span><strong data-filter-count="all">0</strong></button>
+<button type="button" class="task-filter" data-task-filter="active" data-label="未结束" aria-pressed="false"><span>未结束</span><strong data-filter-count="active">0</strong></button>
+<button type="button" class="task-filter" data-task-filter="running" data-label="处理中" aria-pressed="false"><span>处理中</span><strong data-filter-count="running">0</strong></button>
+<button type="button" class="task-filter" data-task-filter="waiting" data-label="等待" aria-pressed="false"><span>等待</span><strong data-filter-count="waiting">0</strong></button>
+<button type="button" class="task-filter" data-task-filter="failed" data-label="失败" aria-pressed="false"><span>失败</span><strong data-filter-count="failed">0</strong></button>
+<button type="button" class="task-filter" data-task-filter="completed" data-label="已完成" aria-pressed="false"><span>已完成</span><strong data-filter-count="completed">0</strong></button>
+<button type="button" class="task-filter" data-task-filter="cancelled" data-label="已取消" aria-pressed="false"><span>已取消</span><strong data-filter-count="cancelled">0</strong></button>
+</div></div>
+<label class="queue-search" for="taskSearch"><span class="field-label">搜索任务</span><input id="taskSearch" type="search" placeholder="输入文献标题或条目 key"/></label>
+</div>
+<div class="selection-toolbar">
+<label class="selection-toggle" for="selectTasks"><input id="selectTasks" type="checkbox"/><span>选择当前可操作任务</span></label>
+<span id="taskCount" class="selection-count" role="status"></span>
+<div class="selection-actions"><button id="retryTasks">重试所选失败任务</button><button id="cancelTasks" class="danger">取消所选任务</button></div>
+</div>
+<p class="queue-help">只会批量处理已勾选的未结束任务。每 3 秒自动刷新；取消会保留已有笔记，重试可能重新调用模型。</p>
+<div class="tablewrap queuewrap"><table id="taskTable"><caption class="sr-only">本机 Literature Flow 任务及操作</caption><colgroup><col class="select-col"/><col class="paper-col"/><col class="stage-col"/><col class="status-col"/><col class="source-col"/><col class="attempt-col"/><col class="reason-col"/><col class="action-col"/></colgroup><thead><tr><th scope="col" class="select-heading">选择</th><th scope="col">文献</th><th scope="col">级别</th><th scope="col">状态</th><th scope="col">来源</th><th scope="col">尝试</th><th scope="col">说明</th><th scope="col">操作</th></tr></thead><tbody id="tasks"></tbody></table></div>
 </section>
 <section><h2>当前选择</h2><label class="inline"><input id="recursive" type="checkbox"/> 包含子分类</label>
 <div class="buttons"><button id="refresh">检查缺失 / 刷新预览</button><select id="level"><option value="0">按评分</option><option value="1">L1</option><option value="2">L2</option><option value="3">L3</option></select><button id="fill">补齐缺失</button><button id="repair">仅修复标签</button><button id="retry">重试失败任务</button><button id="cancel">取消所选文献的任务</button></div>

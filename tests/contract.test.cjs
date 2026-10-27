@@ -14,6 +14,17 @@ test('scientific output cannot forge a leading LF recovery marker',()=>{
 });
 test('manifest is isolated from Butler and preview does not advertise automatic updates',()=>{const m=JSON.parse(fs.readFileSync('addon/manifest.json'));assert.equal(m.applications.zotero.id,'literatureflow@zotero.local');assert.equal(m.applications.zotero.strict_max_version,'9.0.*');assert(m.applications.zotero.update_url.endsWith('/updates.json'));assert.deepEqual(JSON.parse(fs.readFileSync('updates.json')).addons['literatureflow@zotero.local'].updates,[]);});
 
+test('task queue uses stable segmented filters and separated bulk controls',()=>{
+ const panel=fs.readFileSync('addon/content/panel.xhtml','utf8'),css=fs.readFileSync('addon/content/panel.css','utf8');
+ assert(!panel.includes('id="taskFilter"'));
+ assert.equal((panel.match(/data-task-filter=/g)||[]).length,7);
+ assert(panel.includes('class="selection-toolbar"'));
+ assert(panel.includes('<colgroup>'));
+ assert(css.includes('.task-filter.active'));
+ assert(css.includes('tr.task-selected'));
+ assert(css.includes('@media (max-width: 900px)'));
+});
+
 test('nested Markdown subsections count as parent content, empty headings do not',()=>{
  const sections=['Evidence Boundary','Review-Ready Statements'];
  const full='## 8. Evidence Boundary\n### Demonstrated\nObserved association.\n### Speculative\nNot demonstrated.\n## 13. Review-Ready Statements\n### A. Core Finding\nQualified conclusion.';

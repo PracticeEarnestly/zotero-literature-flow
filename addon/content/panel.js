@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 const args=window.arguments[0],api=args.api,$=id=>document.getElementById(id),initialAction=args.initialAction||'overview';
-let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false,mergePreview,mergeBusy=false;
+let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBusy=false,mergePreview,mergeBusy=false,taskFilter='all';
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
@@ -53,7 +53,16 @@ async function refresh(){
   await refreshQueue();
   $('attachments').textContent=JSON.stringify(await api.attachments(args),null,2);
 }
-function visibleTasks(){const f=$('taskFilter').value,q=$('taskSearch').value.trim().toLowerCase();return (queueState?.tasks||[]).filter(t=>(f==='all'||f==='active'&&!['completed','cancelled'].includes(t.status)||t.status===f)&&(!q||(t.title+' '+t.parent).toLowerCase().includes(q)));}
+function matchesTaskFilter(t,filter){return filter==='all'||filter==='active'&&!['completed','cancelled'].includes(t.status)||filter==='running'&&['running','ready_to_commit'].includes(t.status)||t.status===filter;}
+function visibleTasks(){const q=$('taskSearch').value.trim().toLowerCase();return (queueState?.tasks||[]).filter(t=>matchesTaskFilter(t,taskFilter)&&(!q||(t.title+' '+t.parent).toLowerCase().includes(q)));}
+function renderTaskFilters(){
+  const tasks=queueState?.tasks||[];
+  for(const button of document.querySelectorAll('[data-task-filter]')){
+    const filter=button.dataset.taskFilter,count=tasks.filter(t=>matchesTaskFilter(t,filter)).length,active=filter===taskFilter;
+    button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+    const counter=button.querySelector('[data-filter-count]');if(counter)counter.textContent=String(count);
+  }
+}
 function selectionState(){
   const rows=visibleTasks().filter(t=>!['completed','cancelled'].includes(t.status)),ids=new Set(rows.map(t=>t.id));
   for(const id of selectedTasks)if(!ids.has(id))selectedTasks.delete(id);
@@ -61,22 +70,23 @@ function selectionState(){
   $('selectTasks').disabled=!rows.length;
   $('cancelTasks').disabled=!selectedTasks.size;
   $('retryTasks').disabled=queueState?.paused||queueState?.role!=='executor'||!rows.some(t=>selectedTasks.has(t.id)&&t.status==='failed');
-  $('taskCount').textContent=`显示 ${visibleTasks().length} / ${queueState?.tasks.length||0} 项 · 已勾选 ${selectedTasks.size} 项`;
+  $('taskCount').textContent=`当前显示 ${visibleTasks().length} 项 · 已选择 ${selectedTasks.size} 项`;
+  $('queueSection').classList.toggle('has-selection',selectedTasks.size>0);
 }
 async function operateTasks(ids,action){
   if(action==='retry'&&!confirm(`重试 ${ids.length} 个失败任务？可能重新调用模型，已有结果会再次核对。`))return;
   try{const count=await api.taskAction(ids,action);for(const id of ids)selectedTasks.delete(id);queueSignature='';message(`${action==='cancel'?'已取消':action==='revalidate'?'已排队检查已存结果（不调用模型）':'已重新排队'} ${count} 个任务。已有笔记保留。`);await refreshQueue();}catch(e){message(e.message||String(e));}
 }
 function renderQueue(){
-  const rows=visibleTasks();selectionState();$('tasks').replaceChildren();
+  renderTaskFilters();const rows=visibleTasks();selectionState();$('tasks').replaceChildren();
   if(!rows.length){const tr=make('tr'),td=make('td');td.colSpan=8;td.className='empty';td.textContent=queueState?.tasks.length?'没有匹配的任务':'暂无任务。新任务将在这里显示，历史结果不会批量重跑。';tr.appendChild(td);$('tasks').appendChild(tr);return;}
   for(const t of rows){
-    const tr=make('tr');const cell=text=>{const td=make('td');if(text!==undefined)td.textContent=text;tr.appendChild(td);return td;};
-    const cb=make('input');cb.type='checkbox';cb.checked=selectedTasks.has(t.id);cb.disabled=['completed','cancelled'].includes(t.status);cb.setAttribute('aria-label','选择 '+t.title+' '+t.stage);cb.addEventListener('change',()=>{if(cb.checked)selectedTasks.add(t.id);else selectedTasks.delete(t.id);selectionState();});cell().appendChild(cb);
-    const title=cell(t.title),key=make('span');key.className='task-key';key.textContent=t.parent;title.appendChild(key);cell(t.stage);
+    const tr=make('tr');tr.classList.toggle('task-selected',selectedTasks.has(t.id));const cell=(text,className)=>{const td=make('td');if(className)td.className=className;if(text!==undefined)td.textContent=text;tr.appendChild(td);return td;};
+    const cb=make('input');cb.type='checkbox';cb.checked=selectedTasks.has(t.id);cb.disabled=['completed','cancelled'].includes(t.status);cb.setAttribute('aria-label','选择 '+t.title+' '+t.stage);cb.addEventListener('change',()=>{if(cb.checked)selectedTasks.add(t.id);else selectedTasks.delete(t.id);tr.classList.toggle('task-selected',cb.checked);selectionState();});cell(undefined,'task-select-cell').appendChild(cb);
+    const title=cell(t.title,'task-title-cell'),key=make('span');key.className='task-key';key.textContent=t.parent;title.appendChild(key);cell(t.stage,'task-stage-cell');
     const badge=make('span');badge.className='badge '+t.status;badge.textContent=taskLabels[t.status]||t.status;cell().appendChild(badge);
-    cell(t.mode==='automatic'?'自动':'手动');cell(String(t.attempts||0));cell(reasonLabels[t.reason]||t.reason||'—');
-    const actions=cell();for(const action of ['cancel','revalidate','retry']){if(action==='revalidate'&&!t.canRevalidate||action==='retry'&&t.status!=='failed'||action==='cancel'&&['completed','cancelled'].includes(t.status))continue;const b=make('button');b.textContent=action==='cancel'?'取消':action==='revalidate'?'检查已存结果':'重新请求';b.disabled=action!=='cancel'&&(queueState.paused||queueState.role!=='executor');b.addEventListener('click',async()=>{b.disabled=true;await operateTasks([t.id],action);b.disabled=false;});actions.appendChild(b);}if(!actions.childNodes.length)actions.textContent='—';
+    cell(t.mode==='automatic'?'自动':'手动');cell(String(t.attempts||0));cell(reasonLabels[t.reason]||t.reason||'—','task-reason-cell');
+    const actions=cell(undefined,'task-actions-cell'),actionGroup=make('div');actionGroup.className='task-actions';for(const action of ['cancel','revalidate','retry']){if(action==='revalidate'&&!t.canRevalidate||action==='retry'&&t.status!=='failed'||action==='cancel'&&['completed','cancelled'].includes(t.status))continue;const b=make('button');b.textContent=action==='cancel'?'取消':action==='revalidate'?'检查结果':'重新请求';b.className='task-action '+(action==='cancel'?'danger':'');b.disabled=action!=='cancel'&&(queueState.paused||queueState.role!=='executor');b.addEventListener('click',async()=>{b.disabled=true;await operateTasks([t.id],action);b.disabled=false;});actionGroup.appendChild(b);}if(actionGroup.childNodes.length)actions.appendChild(actionGroup);else actions.textContent='—';
     $('tasks').appendChild(tr);
   }
 }
@@ -106,7 +116,7 @@ $('automationToggle').addEventListener('click',async()=>{
   }catch(e){message(e.message||String(e));}
   finally{automationBusy=false;await refreshQueue();}
 });
-$('showTasks').addEventListener('click',()=>{$('queueSection').scrollIntoView({behavior:'smooth'});$('taskFilter').focus({preventScroll:true});});
+$('showTasks').addEventListener('click',()=>{$('queueSection').scrollIntoView({behavior:'smooth'});document.querySelector('[data-task-filter].active')?.focus({preventScroll:true});});
 async function refreshQueue(){
   if(queueBusy)return;queueBusy=true;
   try{queueState=await api.queue();renderAutomation();const roles={executor:'执行端','reader-standby':'阅读 / 待机',disabled:'停用'};
@@ -114,7 +124,8 @@ async function refreshQueue(){
     const signature=JSON.stringify(queueState);if(signature!==queueSignature){queueSignature=signature;renderQueue();}else selectionState();
   }finally{queueBusy=false;}
 }
-$('taskFilter').addEventListener('change',renderQueue);$('taskSearch').addEventListener('input',renderQueue);
+for(const button of document.querySelectorAll('[data-task-filter]'))button.addEventListener('click',()=>{taskFilter=button.dataset.taskFilter;renderQueue();});
+$('taskSearch').addEventListener('input',renderQueue);
 $('selectTasks').addEventListener('change',()=>{for(const t of visibleTasks())if(!['completed','cancelled'].includes(t.status)){if($('selectTasks').checked)selectedTasks.add(t.id);else selectedTasks.delete(t.id);}renderQueue();});
 $('queueRefresh').addEventListener('click',()=>refreshQueue().catch(e=>message(e.message)));
 $('cancelTasks').addEventListener('click',()=>operateTasks([...selectedTasks],'cancel'));
