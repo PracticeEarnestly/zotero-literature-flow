@@ -1,8 +1,8 @@
 # Literature Flow for Zotero
 
-独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.5.0**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
+独立的 L1–L3 文献工作流插件，辅助原版 AI Butler。当前交付 **0.5.1**：P520 正式迁移的备份、历史审计和运行验证见 [正式迁移记录](docs/P520_PRODUCTION.md)。原版指作者发布的 AI Butler 5.1.0，插件包未经修改。
 
-[下载 XPI](dist/zotero-literature-flow-0.5.0.xpi) · [SHA-256](dist/zotero-literature-flow-0.5.0.xpi.sha256) · [0.5.0 自动 L1 补漏](docs/AUTO_L1_RECONCILIATION.md) · [0.4.9 已保存失败响应恢复](docs/FAILED_RESPONSE_RECOVERY.md) · [0.4.8 自动 L1 队列恢复](docs/AUTO_L1_RECOVERY.md) · [设计与实现](docs/DESIGN.md) · [AI 笔记合并设计](docs/AI_NOTE_MERGE_DESIGN.md) · [0.4.7 分类任务与进度](docs/COLLECTION_TASKS_AND_PROGRESS.md) · [0.4.6 实机验收](docs/GENERATION_AWARE_MERGE.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
+[下载 XPI](dist/zotero-literature-flow-0.5.1.xpi) · [SHA-256](dist/zotero-literature-flow-0.5.1.xpi.sha256) · [0.5.1 前置级别识别修复](docs/APPENDED_LEVEL_RECOVERY.md) · [0.5.0 自动 L1 补漏](docs/AUTO_L1_RECONCILIATION.md) · [0.4.9 已保存失败响应恢复](docs/FAILED_RESPONSE_RECOVERY.md) · [0.4.8 自动 L1 队列恢复](docs/AUTO_L1_RECOVERY.md) · [设计与实现](docs/DESIGN.md) · [AI 笔记合并设计](docs/AI_NOTE_MERGE_DESIGN.md) · [0.4.7 分类任务与进度](docs/COLLECTION_TASKS_AND_PROGRESS.md) · [0.4.6 实机验收](docs/GENERATION_AWARE_MERGE.md) · [验收记录](docs/VALIDATION.md) · [迁移与回滚](docs/MIGRATION.md)
 
 ## 日常操作
 

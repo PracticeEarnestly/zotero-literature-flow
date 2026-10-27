@@ -93,6 +93,16 @@ test('combined legacy Note independently recognizes L1, L2 and L3 blocks',()=>{
  assert.deepEqual(C.stages.map(s=>C.inspect(i,pack)[s].state),['complete','complete','complete']);
  const onlyL3={...i,notes:[{...i.notes[0],html:html.slice(html.indexOf('[L3]'))}]};assert.equal(C.inspect(onlyL3,pack).L1.state,'review');assert.equal(C.inspect(onlyL3,pack).L2.state,'missing');
 });
+test('an appended Butler L1 block remains valid when an L2 block appears first',async()=>{
+ const l2='<!-- AI_BUTLER_LLM_BLOCK_BEGIN::v1::l2::a --><div>[L2] Evidence Card\n'+pack.stages.L2.sections.map(s=>s+'\nEvidence body.').join('\n')+'</div><!-- AI_BUTLER_LLM_BLOCK_END::v1::l2::b -->';
+ const l1='<!-- AI_BUTLER_LLM_BLOCK_BEGIN::v1::l1::a --><div>SUMMARY: Supported finding.\nDATA_AVAILABILITY: Public\nDATA_ACCESSION: TEST</div><!-- AI_BUTLER_LLM_BLOCK_END::v1::l1::b -->';
+ const item=paper({notes:[{key:'APPENDED',html:l2+l1,tags:['AI-Generated','AI-Summary']}]});
+ assert.deepEqual(C.stages.map(s=>C.inspect(item,pack)[s].state),['complete','complete','missing']);
+ const f=fixture(item);await f.e.plan(f.item,3,'automatic');assert.deepEqual(f.e.state.tasks.map(t=>t.stage),['L3']);await f.e.step();assert.equal(f.calls,1);
+});
+test('a reviewed prerequisite prevents ambiguous downstream automatic tasks',async()=>{
+ const f=fixture(paper({notes:[{key:'PARTIAL',html:'[L1] partial',tags:['AI-Summary']}]}));await f.e.plan(f.item,3,'automatic');assert.equal(f.e.state.tasks.length,0);
+});
 test('partial mixed legacy summary and L3 stay under review even when L2 is complete',async()=>{
  const html='An old summary without a DATA_AVAILABILITY field.\n[L2] Evidence Card\n'+pack.stages.L2.sections.map(s=>s+'\nEvidence body.').join('\n')+'\n[L3] Deep Reading\nIncomplete older analysis.';
  const f=fixture(paper({notes:[{key:'MIXED',html,tags:['AI-Generated']}]}));

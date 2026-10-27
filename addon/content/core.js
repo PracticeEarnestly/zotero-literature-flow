@@ -134,9 +134,15 @@ var LFCore = (() => {
     }
     // Some legacy Butler Notes append several levels into the same child Note.
     // Validate each actual block; L3 alone must never imply L1 or L2.
-    const first=text.slice(0,markers[0]?.index ?? text.length);
-    const data=first.match(/^\s*DATA_AVAILABILITY\s*[:：]\s*(\w+)\s*$/m);
-    if(data && pack.dataValues.includes(data[1]) && (note.tags || []).some(t=>['AI-Generated','AI-Summary'].includes(t)) && /[\p{L}\p{N}]/u.test(first.replace(/^.*DATA_(AVAILABILITY|ACCESSION).*$/gm,'')))levels.push('L1');
+    const tagged=(note.tags || []).some(t=>['AI-Generated','AI-Summary'].includes(t));
+    // AI Butler can append independently generated blocks in any order. Inspect
+    // each block so an L1 summary appended after an L2 card is still recognized.
+    const blocks=[...String(note.html).matchAll(/<!--\s*AI_BUTLER_LLM_BLOCK_BEGIN[^>]*-->([\s\S]*?)<!--\s*AI_BUTLER_LLM_BLOCK_END[^>]*-->/gi)].map(m=>visible(m[1]));
+    const l1Candidates=blocks.length ? blocks.filter(v=>!/^\s*\[(?:L2|L3)\]\s*(?:Evidence\s*Card|Deep\s*Reading)/im.test(v)) : [text.slice(0,markers[0]?.index ?? text.length)];
+    if(tagged && l1Candidates.some(v=>{
+      const data=v.match(/^\s*DATA_AVAILABILITY\s*[:：]\s*(\w+)\s*$/m);
+      return data && pack.dataValues.includes(data[1]) && /[\p{L}\p{N}]/u.test(v.replace(/^.*DATA_(AVAILABILITY|ACCESSION).*$/gm,''));
+    }))levels.push('L1');
     return [...new Set(levels)];
   }
   function legacyStage(note,pack){return ['L3','L2','L1'].find(s=>legacyStages(note,pack).includes(s)) || null;}
@@ -211,7 +217,10 @@ var LFCore = (() => {
         const stage=stages[n-1], old=found[stage];
         const force=regenerate && n===level;
         if (old.state==='complete' && !force) continue;
-        if (!['complete','missing','deleted'].includes(old.state) || old.state==='deleted' && !force) continue;
+        // A review/conflict/deleted prerequisite cannot safely support a later
+        // stage. Stop planning downstream work instead of creating a task that
+        // will wait forever with an ambiguous prerequisite message.
+        if (!['complete','missing','deleted'].includes(old.state) || old.state==='deleted' && !force) break;
         let revision=0;
         const same=this.state.tasks.filter(t=>t.scope===item.scope && t.parent===item.key && t.stage===stage);
         if (force) revision=1+Math.max(0,...same.map(t=>t.revision),old.note?.record?.revision||0);
@@ -275,7 +284,8 @@ var LFCore = (() => {
         if(found[t.stage].state==='complete' && t.revision===0) {t.noteKey=found[t.stage].note.key;t.status='completed';await this.save();return true;}
         if(!['missing','complete'].includes(found[t.stage].state) && !(t.revision>0 && found[t.stage].state==='deleted')) throw new Error('review-'+found[t.stage].state);
         const dependencies=stages.slice(0,stages.indexOf(t.stage));
-        if(dependencies.some(s=>found[s].state!=='complete')) throw new Error('waiting-prerequisite');
+        const blocked=dependencies.find(s=>found[s].state!=='complete');
+        if(blocked)throw new Error(['review','conflict','deleted'].includes(found[blocked].state)?'review-prerequisite':'waiting-prerequisite');
         if(t.contract!==this.pack.id) throw new Error('review-contract-changed');
         let envelope=t.response ? await this.p.readResponse(t.response) : null;
         if(!envelope) {
