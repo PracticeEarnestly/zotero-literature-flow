@@ -1,0 +1,16 @@
+{
+  "manifest_version": 2,
+  "name": "Literature Flow",
+  "version": "0.5.3",
+  "description": "Independent L1–L3 workflow; standby by default. Preview for Zotero 9.",
+  "homepage_url": "https://github.com/PracticeEarnestly/zotero-literature-flow",
+  "author": "Xiqing; derived workflow concepts from zotero-AI-Butler",
+  "applications": {
+    "zotero": {
+      "id": "literatureflow@zotero.local",
+      "strict_min_version": "9.0",
+      "strict_max_version": "9.0.*",
+      "update_url": "https://raw.githubusercontent.com/PracticeEarnestly/zotero-literature-flow/codex/literature-flow-v1-design/updates.json"
+    }
+  }
+}
