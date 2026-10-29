@@ -19,20 +19,36 @@ var LFCore = (() => {
   const normalized = s => s.toLowerCase().replace(/[–—]/g,'-').replace(/\s*[/&]\s*/g,'/').replace(/^\s*\d+[.)、：:]\s*/,'').replace(/[：:]\s*$/,'').replace(/[^\p{L}\p{N}/-]+/gu,' ').trim();
   function checkSections(text, sections, markdown = true) {
     const lines = text.split(/\r?\n/);
+    const required=new Set(sections.map(normalized));
     return sections.every(section => {
-      const n = lines.findIndex(l => normalized(markdown ? l.replace(/^\s*#{1,6}\s+/,'') : l) === normalized(section));
+      const n = lines.findIndex(l => {
+        const heading=l.match(/^\s*(#{1,6})\s+(.+)$/);
+        return (!markdown || heading) && normalized(markdown ? heading[2] : l) === normalized(section);
+      });
       if (n < 0) return false;
       const level = markdown ? lines[n].match(/^\s*(#{1,6})\s/)?.[1].length : null;
       const rest = lines.slice(n + 1);
       const end = rest.findIndex(l => {
-        const heading = markdown ? l.match(/^\s*(#{1,6})\s/) : null;
-        if (heading && level) return heading[1].length <= level;
-        return sections.some(s => normalized(l.replace(/^\s*#{1,6}\s+/,'')) === normalized(s));
+        const heading = markdown ? l.match(/^\s*(#{1,6})\s+(.+)$/) : null;
+        // Models sometimes render Evidence Boundary children at the same level
+        // as their parent. Only another required section closes the current one;
+        // arbitrary same-level child headings remain part of its body.
+        if (heading && level) return heading[1].length <= level && required.has(normalized(heading[2]));
+        return !markdown && required.has(normalized(l));
       });
       // A section may start with subsections; their prose counts, their headings alone do not.
       const body = rest.slice(0,end < 0 ? rest.length : end).filter(l => !markdown || !/^\s*#{1,6}\s/.test(l));
       return /[\p{L}\p{N}]/u.test(body.join('\n'));
     });
+  }
+  function recoverL3TagJSON(text,pack) {
+    // L3 already contains a mandatory, human-readable evidence decision. If a
+    // stopped response contains every required section but omits both boundary
+    // markers, recover only that allowlisted tag. Other model-suggested tags are
+    // deliberately ignored and partial/ambiguous marker blocks still fail.
+    const matches=[...text.matchAll(/^\s*(?:[-*]\s+)?(?:\*{1,2})?Evidence Level\s*[:：](?:\*{1,2})?\s*(?:\*{1,2})?(E[0-5])\b/gim)].map(m=>m[1]);
+    const values=[...new Set(matches)].filter(v=>pack.evidenceValues.includes(v));
+    return values.length===1 ? {evidence:['Evidence:'+values[0]]} : null;
   }
   function parseTagJSON(raw) {
     try { return JSON.parse(raw); } catch {}
@@ -67,11 +83,14 @@ var LFCore = (() => {
     // Repair one observed, unambiguous duplicated word in the required L3
     // heading. The section body and every other required heading remain strict.
     text=text.replace(/^(\s*#{1,6}\s+(?:\d+[.)、：:]\s*)?Statistical and Methodological)\s+App\s+appraisal\s*$/gim,'$1 Appraisal');
-    const blocks = [...text.matchAll(/ZOTERO_TAGS_JSON_START\s*([\s\S]*?)\s*ZOTERO_TAGS_JSON_END/g)];
-    if (blocks.length !== 1 || (text.match(/ZOTERO_TAGS_JSON_(START|END)/g)||[]).length !== 2) throw new Error('output-tags-boundary');
-    const parsed = parseTagJSON(blocks[0][1]);
+    const blocks = [...text.matchAll(/ZOTERO_TAGS_JSON_START\s*([\s\S]*?)\s*ZOTERO_TAGS_JSON_END/g)],markerCount=(text.match(/ZOTERO_TAGS_JSON_(START|END)/g)||[]).length;
+    let parsed;
+    if(blocks.length===1 && markerCount===2)parsed=parseTagJSON(blocks[0][1]);
+    else if(stage==='L3' && markerCount===0 && checkSections(text,pack.stages.L3.sections))parsed=recoverL3TagJSON(text,pack);
+    if(!parsed)throw new Error('output-tags-boundary');
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || Object.values(parsed).some(v => !Array.isArray(v) || v.some(t => typeof t !== 'string'))) throw new Error('output-tags-schema');
-    text = text.replace(blocks[0][0],'').replace(/```(?:json)?\s*```/g,'').trim();
+    if(blocks.length)text=text.replace(blocks[0][0],'');
+    text = text.replace(/```(?:json)?\s*```/g,'').trim();
     if (!/[\p{L}\p{N}]/u.test(text) || !checkSections(text, pack.stages[stage].sections)) throw new Error('output-missing-sections');
     const tags = [];
     const evidence = [...new Set(Object.values(parsed).flat().filter(t => pack.evidenceValues.some(v => t === 'Evidence:' + v)))];
@@ -332,6 +351,11 @@ var LFCore = (() => {
       } finally {this.busy=false;}
     }
     async recover() {
+      const validatorRevision=1;
+      if((this.state.validatorRevision||0)<validatorRevision){
+        for(const t of this.state.tasks)if(t.status==='failed' && /^output-/.test(t.reason||'') && t.response){t.status='queued';t.reason='checking-saved-response';t.cachedOnly=true;t.nextAt=0;}
+        this.state.validatorRevision=validatorRevision;
+      }
       for (const t of this.state.tasks) {
         if (['completed','cancelled','failed'].includes(t.status))continue;
         const path=await this.p.findResponse(t.id,t.generation);

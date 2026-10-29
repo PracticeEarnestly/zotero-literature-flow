@@ -157,7 +157,31 @@ test('the observed duplicated L3 appraisal word is normalized without relaxing o
  const r=output('L3');r.text=r.text.replace('## Statistical and Methodological Appraisal','## 10. Statistical and Methodological App appraisal');
  const result=C.validate(r,'L3',pack);assert(result.text.includes('## 10. Statistical and Methodological Appraisal'));assert(!result.text.includes('App appraisal'));
 });
+test('required sections tolerate repeated body labels and same-level child headings',()=>{
+ const repeated=output('L3');
+ repeated.text=repeated.text.replace('## Evidence Level\nEvidence from the paper.','## Evidence Level\nEvidence Level:\n**E2 — Association**');
+ assert.equal(C.validate(repeated,'L3',pack).tags[0],'Evidence:E2');
+ const sameLevel=output('L3');
+ sameLevel.text=sameLevel.text.replace('## Evidence Boundary\nEvidence from the paper.','## Evidence Boundary\n## Demonstrated\nDirectly observed result.\n## Associated\nObserved association.');
+ assert.equal(C.validate(sameLevel,'L3',pack).tags[0],'Evidence:E2');
+});
+test('complete L3 without tag markers recovers only its explicit evidence tag',()=>{
+ const r=output('L3');
+ r.text=r.text.replace('## Evidence Level\nEvidence from the paper.','## Evidence Level\nEvidence Level: **E3 — Functional**').replace(/\nZOTERO_TAGS_JSON_START[\s\S]*?ZOTERO_TAGS_JSON_END/,'');
+ assert.deepEqual(C.validate(r,'L3',pack).tags,['Evidence:E3']);
+ const partial={...r,text:r.text+'\nZOTERO_TAGS_JSON_START'};
+ assert.throws(()=>C.validate(partial,'L3',pack),/output-tags-boundary/);
+ const l2=output('L2');l2.text=l2.text.replace(/\nZOTERO_TAGS_JSON_START[\s\S]*?ZOTERO_TAGS_JSON_END/,'');
+ assert.throws(()=>C.validate(l2,'L2',pack),/output-tags-boundary/);
+});
 async function cachedFailure(f,reason='output-tags-json',response=withTags('{“evidence": [“Evidence:E2”]}')){await f.e.plan(f.item,1);const t=f.e.state.tasks[0];t.status='failed';t.reason=reason;t.attempts=1;t.response=await f.p.writeResponse(t.id,t.generation,{response,input:await f.p.input(),generation:t.generation,contract:pack.id,dependencies:[]});return t;}
+test('validator upgrade rechecks saved output failures exactly once without inference',async()=>{
+ const f=fixture(),t=await cachedFailure(f,'output-missing-sections',output('L1'));
+ await f.e.recover();assert.equal(f.e.state.validatorRevision,1);assert.equal(t.status,'queued');assert.equal(t.cachedOnly,true);
+ await f.e.step();assert.equal(t.status,'completed');assert.equal(f.calls,0);
+ const bad=fixture(),failed=await cachedFailure(bad,'output-tags-boundary',{text:'still invalid',finish:'stop'});bad.e.state.validatorRevision=1;
+ await bad.e.recover();assert.equal(failed.status,'failed');
+});
 test('revalidate saved tags commits once without inference or generation changes',async()=>{
  const f=fixture(),t=await cachedFailure(f),generation=t.generation;
  assert.equal(await f.e.taskAction([t.id],'revalidate'),1);await f.e.step();assert.equal(f.calls,0);assert.equal(f.commits,1);assert.equal(t.attempts,1);assert.equal(t.generation,generation);assert.equal(t.status,'completed');
