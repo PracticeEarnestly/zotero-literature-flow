@@ -3,7 +3,7 @@ var LiteratureFlow = (() => {
   const C=LFCore, N=LFNotes, PREF='extensions.zotero.literatureFlowV1.config', LOGIN='chrome://literature-flow';
   let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve(),automationEpoch=0,lastReconcileAt=0;
   const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set(),fulltextAttempts=new Map();
-  const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],debounceMs:2500,intervalMs:5000,reconcileMs:300000,fulltextRetryMs:900000,bindings:{}};
+  const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],excludedTags:[],excludedCollectionKeys:[],debounceMs:2500,intervalMs:5000,reconcileMs:300000,fulltextRetryMs:900000,bindings:{}};
   const uuid=()=>Services.uuid.generateUUID().toString().replace(/[{}]/g,'');
   const hash=text=>{
     const bytes=new TextEncoder().encode(text),h=Components.classes['@mozilla.org/security/hash;1'].createInstance(Components.interfaces.nsICryptoHash);
@@ -20,12 +20,40 @@ var LiteratureFlow = (() => {
     const lib=Zotero.Libraries.get(item.libraryID);
     return !!lib?.editable && (item.libraryID===Zotero.Libraries.userLibraryID || lib.libraryType==='group' && config.allowedGroups.includes(lib.groupID));
   }
+  const cleanTags=values=>[...new Map((Array.isArray(values)?values:[]).map(value=>String(value||'').trim()).filter(Boolean).map(value=>[value.toLocaleLowerCase(),value])).values()];
+  const cleanCollectionKeys=values=>[...new Set((Array.isArray(values)?values:[]).map(value=>String(value||'').trim()).filter(value=>/^\d+:[A-Z0-9]+$/i.test(value)))];
+  const collectionIdentity=collection=>collection?.libraryID&&collection?.key ? collection.libraryID+':'+collection.key : null;
+  function collectionFromIdentity(identity){
+    const match=/^(\d+):([A-Z0-9]+)$/i.exec(identity||'');
+    return match ? Zotero.Collections.getByLibraryAndKey?.(Number(match[1]),match[2]) || null : null;
+  }
+  function collectionParent(collection){
+    if(collection?.parentID)return Zotero.Collections.get(collection.parentID);
+    return collection?.parentKey ? Zotero.Collections.getByLibraryAndKey?.(collection.libraryID,collection.parentKey) || null : null;
+  }
+  function collectionPath(collection){
+    const names=[],seen=new Set();
+    while(collection&&!seen.has(collection.id)){seen.add(collection.id);names.unshift(collection.name||collection.key);collection=collectionParent(collection);}
+    return names.join(' / ');
+  }
+  function collectionLineage(item){
+    const identities=new Set();
+    for(const id of item.getCollections?.()||[]){let collection=Zotero.Collections.get(id),seen=new Set();while(collection&&!seen.has(collection.id)){seen.add(collection.id);const identity=collectionIdentity(collection);if(identity)identities.add(identity);collection=collectionParent(collection);}}
+    return identities;
+  }
+  function autoExclusion(item,tags){
+    const excludedTags=new Set(config.excludedTags.map(value=>value.toLocaleLowerCase())),tagHits=tags.filter(tag=>excludedTags.has(String(tag).toLocaleLowerCase()));
+    const collectionHits=[...collectionLineage(item)].filter(identity=>config.excludedCollectionKeys.includes(identity));
+    return tagHits.length||collectionHits.length ? {tags:tagHits,collections:collectionHits} : null;
+  }
+  function saveConfig(){Zotero.Prefs.set(PREF,JSON.stringify(config),true);}
   async function get(id) {
     const item=await Zotero.Items.getAsync(id);
     if(!item?.isRegularItem?.())return null;
     const notes=[],itemScope=scope(item.libraryID),registry=engine.state.noteRecords?.[itemScope+'/'+item.key];
     for(const nid of item.getNotes()) {const n=await Zotero.Items.getAsync(nid);if(n && !n.deleted){const snapshot={key:n.key,id:n.id,html:n.getNote(),tags:n.getTags().map(t=>t.tag),dateAdded:n.dateAdded,dateModified:n.dateModified};if(snapshot.tags.includes('LF:Combined')){const embedded=C.records(snapshot);snapshot.records=embedded.length?embedded:registry?.noteKey===snapshot.key?registry.records:N.inferRecords(snapshot,item.key,itemScope,pack.id);}notes.push(snapshot);}}
-    return {id:item.id,key:item.key,scope:itemScope,libraryID:item.libraryID,title:item.getField('title'),extra:item.getField('extra'),tags:item.getTags().map(t=>t.tag),authors:item.getCreators().map(c=>c.name||[c.firstName,c.lastName].filter(Boolean).join(' ')).join(', '),dateAdded:Date.parse(item.dateAdded.replace(' ','T')+'Z'),deleted:item.deleted,writable:allowed(item),notes};
+    const tags=item.getTags().map(t=>t.tag);
+    return {id:item.id,key:item.key,scope:itemScope,libraryID:item.libraryID,title:item.getField('title'),extra:item.getField('extra'),tags,authors:item.getCreators().map(c=>c.name||[c.firstName,c.lastName].filter(Boolean).join(' ')).join(', '),dateAdded:Date.parse(item.dateAdded.replace(' ','T')+'Z'),deleted:item.deleted,writable:allowed(item),autoExcluded:autoExclusion(item,tags),notes};
   }
   async function normalized(items) {
     const ids=new Set();
@@ -42,17 +70,29 @@ var LiteratureFlow = (() => {
     for(const lib of libs)result.push(...await normalized(await Zotero.Items.getAll(lib.libraryID,true,false)));
     return result;
   }
-  async function reconcileAuto() {
+  async function reconcileAuto(force=false) {
     if(!engine?.canRun() || !engine.state.auto || !engine.state.enabledAt)return 0;
     const libs=Zotero.Libraries.getAll().filter(l=>l.libraryID===Zotero.Libraries.userLibraryID || l.libraryType==='group' && config.allowedGroups.includes(l.groupID));
     let changed=0;
     for(const lib of libs)for(const item of await Zotero.Items.getAll(lib.libraryID,true,false)){
       if(!item?.isRegularItem?.() || item.deleted || !allowed(item))continue;
-      const k=scope(item.libraryID)+'/'+item.key,r=C.rating(item.getField('extra'),item.getTags().map(t=>t.tag),engine.state.tagAdapter),old=engine.state.baseline[k];
-      if(old && old.value===r.value && old.status===r.status)continue;
+      const itemScope=scope(item.libraryID),tags=item.getTags().map(t=>t.tag),k=itemScope+'/'+item.key,r=C.rating(item.getField('extra'),tags,engine.state.tagAdapter),old=engine.state.baseline[k];
+      const exclusion=autoExclusion(item,tags),needsExclusionUpdate=exclusion ? engine.state.tasks.some(t=>t.parent===item.key&&t.scope===itemScope&&t.mode==='automatic'&&!['completed','cancelled'].includes(t.status)) : engine.state.tasks.some(t=>t.parent===item.key&&t.scope===itemScope&&t.mode==='automatic'&&t.status==='cancelled'&&t.reason==='automation-excluded');
+      if(!force && !needsExclusionUpdate && old && old.value===r.value && old.status===r.status)continue;
       const snapshot=await get(item.id);if(snapshot){await engine.observe(snapshot);changed++;}
     }
     return changed;
+  }
+  async function applyExclusionRules(){
+    const items=await allItems();let cancelled=0;
+    await engine.serial(async()=>{
+      for(const item of items)if(item.autoExcluded)for(const task of engine.state.tasks){
+        if(task.parent===item.key&&task.scope===item.scope&&task.mode==='automatic'&&!['completed','cancelled'].includes(task.status)){task.generation++;task.status='cancelled';task.reason='automation-excluded';delete task.response;cancelled++;}
+      }
+      await engine.save();
+    });
+    if(engine.canRun()&&engine.state.auto)await reconcileAuto(true);
+    return {items:items.length,cancelled};
   }
   async function fulltextSource(pdf,path,stat) {
     const row=await Zotero.Fulltext.getPages(pdf.id);
@@ -188,6 +228,7 @@ var LiteratureFlow = (() => {
   const responsePath=(id,g)=>PathUtils.join(dir,'responses',id+'-'+g+'.json');
   async function startup() {
     config={...defaults,...JSON.parse(Zotero.Prefs.get(PREF,true)||'{}')};
+    config.excludedTags=cleanTags(config.excludedTags);config.excludedCollectionKeys=cleanCollectionKeys(config.excludedCollectionKeys);
     // Profile directory is local and separate from Zotero's synced data directory.
     dir=PathUtils.join(Services.dirsvc.get('ProfD',Components.interfaces.nsIFile).path,'literature-flow-v1');
     await IOUtils.makeDirectory(PathUtils.join(dir,'responses'),{ignoreExisting:true,permissions:0o700});
@@ -233,33 +274,48 @@ var LiteratureFlow = (() => {
     for(const p of panels)try{p.close();}catch{}
     if(engine){engine.alive=false;await engine.controls({});}await writeChain;
   }
+  function contextCollections(context){
+    const main=Zotero.getMainWindow();
+    return context?.collections || (context?.collection ? [context.collection] : [main.ZoteroPane.getSelectedCollection()].filter(Boolean));
+  }
+  function notice(headline,description){
+    try{const progress=new Zotero.ProgressWindow();progress.changeHeadline(headline);progress.addDescription(description);progress.show();progress.startCloseTimer(4000);}catch{Zotero.debug('[Literature Flow] '+headline+': '+description);}
+  }
   function registerMenus(){
     if(!Zotero.MenuManager)throw new Error('Zotero MenuManager unavailable');
-    for(const target of ['main/library/item','main/menubar/tools']){
-      const menuID='literature-flow-v1-'+target.replace(/\//g,'-');
-      menuIDs.push(Zotero.MenuManager.registerMenu({menuID,pluginID:'literatureflow@zotero.local',target,menus:[{
-        menuType:'menuitem',onShowing:(e,c)=>{c.menuElem.setAttribute('label','Literature Flow · 工作流与队列…');},
-        onCommand:(e,c)=>open(target,c)
-      }]}));
-    }
-    const task=(label,initialAction)=>({menuType:'menuitem',onShowing:(e,c)=>c.menuElem.setAttribute('label',label),onCommand:(e,c)=>open('main/library/collection',c,initialAction)});
+    const task=(target,label,initialAction)=>({menuType:'menuitem',onShowing:(e,c)=>c.menuElem.setAttribute('label',label),onCommand:(e,c)=>open(target,c,initialAction)});
+    const actions=target=>[
+      task(target,'查看状态与任务表','overview'),
+      task(target,target==='main/library/collection'?'检查本分类（只读）':'检查选中文献（只读）','check'),
+      task(target,'按当前评分补齐缺失','fill-rating'),
+      task(target,'补齐至 L1 概览','fill-l1'),
+      task(target,'补齐至 L2 证据卡','fill-l2'),
+      task(target,'补齐至 L3 深读','fill-l3'),
+      task(target,'合并 AI 笔记（先预览）','merge')
+    ];
+    menuIDs.push(Zotero.MenuManager.registerMenu({menuID:'literature-flow-v1-main-library-item',pluginID:'literatureflow@zotero.local',target:'main/library/item',menus:[{
+      menuType:'submenu',onShowing:(e,c)=>c.menuElem.setAttribute('label','Literature Flow · 选择任务'),menus:actions('main/library/item')
+    }]}));
+    menuIDs.push(Zotero.MenuManager.registerMenu({menuID:'literature-flow-v1-main-menubar-tools',pluginID:'literatureflow@zotero.local',target:'main/menubar/tools',menus:[{
+      menuType:'menuitem',onShowing:(e,c)=>c.menuElem.setAttribute('label','Literature Flow · 工作流与队列…'),onCommand:(e,c)=>open('main/menubar/tools',c)
+    }]}));
+    const toggleCollection={menuType:'menuitem',onShowing:(e,c)=>{
+      const identities=contextCollections(c).map(value=>collectionIdentity(typeof value==='number'?Zotero.Collections.get(value):value)).filter(Boolean);
+      const excluded=identities.length&&identities.every(identity=>config.excludedCollectionKeys.includes(identity));
+      c.menuElem.setAttribute('label',excluded?'恢复此文件夹自动处理':'排除此文件夹自动处理');
+    },onCommand:async(e,c)=>{
+      try{const result=await api.toggleCollectionExclusion(contextCollections(c).map(value=>typeof value==='number'?value:value.id));notice(result.excluded?'已排除自动处理':'已恢复自动处理',result.excluded?'此文件夹及子文件夹不会自动建立任务；右键手动运行仍有效。':'已重新检查此文件夹中的文献。');}
+      catch(error){notice('排除规则未更新',error.message||String(error));}
+    }};
     menuIDs.push(Zotero.MenuManager.registerMenu({menuID:'literature-flow-v1-main-library-collection',pluginID:'literatureflow@zotero.local',target:'main/library/collection',menus:[{
-      menuType:'submenu',onShowing:(e,c)=>c.menuElem.setAttribute('label','Literature Flow · 选择任务'),menus:[
-        task('查看状态与任务表','overview'),
-        task('检查本分类（只读）','check'),
-        task('按当前评分补齐缺失','fill-rating'),
-        task('补齐至 L1 概览','fill-l1'),
-        task('补齐至 L2 证据卡','fill-l2'),
-        task('补齐至 L3 深读','fill-l3'),
-        task('合并 AI 笔记（先预览）','merge')
-      ]
+      menuType:'submenu',onShowing:(e,c)=>c.menuElem.setAttribute('label','Literature Flow · 选择任务'),menus:[...actions('main/library/collection'),{menuType:'separator'},toggleCollection]
     }]}));
   }
   function open(target,context,initialAction='overview'){
     const main=Zotero.getMainWindow();
     const raw=context?.items || main.ZoteroPane.getSelectedItems();
     // Zotero 9 provides one selected collection; Zotero 10 multi-select can pass collections.
-    const collections=context?.collections || (context?.collection ? [context.collection] : [main.ZoteroPane.getSelectedCollection()].filter(Boolean));
+    const collections=contextCollections(context);
     const args={api,selection:raw.map(i=>typeof i==='number'?i:i.id),collections:target==='main/library/collection'?collections.map(c=>typeof c==='number'?c:c.id):[],initialAction};
     const win=main.openDialog('chrome://zotero-literature-flow/content/panel.xhtml','','chrome,dialog=no,modal=no,centerscreen,resizable,width=1000,height=800',args);panels.add(win);
   }
@@ -278,6 +334,22 @@ var LiteratureFlow = (() => {
   }
   const api={
     async settings(){return {config:{...config,bindings:undefined},role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id};},
+    async exclusions(){return {
+      tags:[...config.excludedTags],
+      collections:config.excludedCollectionKeys.map(identity=>{const collection=collectionFromIdentity(identity);return {identity,name:collection?collectionPath(collection):identity,available:!!collection};})
+    };},
+    async setExcludedTags(values){
+      config.excludedTags=cleanTags(values);saveConfig();const result=await applyExclusionRules();return {...await api.exclusions(),...result};
+    },
+    async toggleCollectionExclusion(ids){
+      const identities=[...new Set(ids.map(id=>collectionIdentity(Zotero.Collections.get(id))).filter(Boolean))];if(!identities.length)throw new Error('没有选中可排除的文件夹');
+      const excluded=identities.every(identity=>config.excludedCollectionKeys.includes(identity));
+      config.excludedCollectionKeys=excluded?config.excludedCollectionKeys.filter(identity=>!identities.includes(identity)):cleanCollectionKeys([...config.excludedCollectionKeys,...identities]);saveConfig();
+      const result=await applyExclusionRules();return {excluded:!excluded,changed:identities.length,...result,exclusions:await api.exclusions()};
+    },
+    async removeExcludedCollection(identity){
+      config.excludedCollectionKeys=config.excludedCollectionKeys.filter(value=>value!==identity);saveConfig();const result=await applyExclusionRules();return {...await api.exclusions(),...result};
+    },
     async queue(){
       const tasks=[];
       for(const t of engine.state.tasks){const p=await Zotero.Items.getAsync(t.itemID);
@@ -328,7 +400,7 @@ var LiteratureFlow = (() => {
       const items=await selected(args,recursive);
       const report=[];
       for(const i of items){let source;try{const s=await input(i);source={mode:s.mode,characters:s.text.length,coverage:s.coverage};}catch(e){source=e.message;}
-        report.push({id:i.id,key:i.key,title:i.title,writable:i.writable,rating:C.rating(i.extra,i.tags,engine.state.tagAdapter),levels:Object.fromEntries(Object.entries(C.inspect(i,pack,engine.state.tasks)).map(([s,v])=>[s,{state:v.state,note:v.note?.key,shared:v.shared}])),input:source});}
+        report.push({id:i.id,key:i.key,title:i.title,writable:i.writable,autoExcluded:i.autoExcluded,rating:C.rating(i.extra,i.tags,engine.state.tagAdapter),levels:Object.fromEntries(Object.entries(C.inspect(i,pack,engine.state.tasks)).map(([s,v])=>[s,{state:v.state,note:v.note?.key,shared:v.shared}])),input:source});}
       return {config:{...config,bindings:undefined},role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id,items:report,tasks:engine.state.tasks.map(({id,parent,stage,status,reason,mode,revision,attempts})=>({id,parent,stage,status,reason,mode,revision,attempts}))};
     },
     async configure(values,token){
@@ -337,12 +409,12 @@ var LiteratureFlow = (() => {
       if(values.baseURL)endpoint(values.baseURL);
       await engine.controls({paused:true});for(const c of controllers)c.abort();
       config.baseURL=values.baseURL.trim();config.model=values.model.trim();
-      Zotero.Prefs.set(PREF,JSON.stringify(config),true);
+      saveConfig();
       if(token)await setKey(token);
       await engine.controls({role:values.role});
       if(values.role==='disabled' && observer){Zotero.Notifier.unregisterObserver(observer);observer=null;}else if(values.role!=='disabled')registerObserver();
     },
-    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});await reconcileAuto();},
+    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});await reconcileAuto(true);},
     async pause(){automationEpoch++;await engine.controls({paused:true});for(const c of controllers)c.abort();},
     async startAutomation({activateExecutor=false}={}){
       const epoch=++automationEpoch;
@@ -360,7 +432,7 @@ var LiteratureFlow = (() => {
       if(epoch!==automationEpoch)throw new Error('开启已中止：设置或暂停状态已改变');
       registerObserver();
       await engine.controls({role:'executor',auto:true,paused:false});
-      await reconcileAuto();
+      await reconcileAuto(true);
     },
     async enableAuto(){return api.startAutomation();},
     async disableAuto(){automationEpoch++;await engine.controls({auto:false});for(const t of engine.state.tasks)if(t.mode==='automatic' && t.status!=='completed'){t.status='cancelled';t.generation++;t.reason='automation-disabled';}await engine.save();},
@@ -396,12 +468,12 @@ var LiteratureFlow = (() => {
       const st=await IOUtils.stat(pp),mp=md?await md.getFilePathAsync():null;
       if(md && (!mp || !await IOUtils.exists(mp)))throw new Error('Markdown 未下载');
       config.bindings[i.scope+'/'+i.key]={pdf:pdf.key,markdown:md?.key,pdfSize:st.size,pdfModified:st.lastModified,markdownHash:mp?hash(await IOUtils.readUTF8(mp)):null};
-      Zotero.Prefs.set(PREF,JSON.stringify(config),true);
+      saveConfig();
     },
     async attachments(args){const items=await selected(args,false);if(items.length!==1)return [];const p=await Zotero.Items.getAsync(items[0].id);return (await Zotero.Items.getAsync(p.getAttachments())).map(a=>({key:a.key,title:a.getField('title'),type:a.attachmentContentType}));},
     async probe(){const r=await http('/models',null,15000);return {models:(r.data||[]).map(m=>m.id),note:'仅检查模型列表，不代表已完成文本推理或视觉验证'};},
     async exportConfig(win){const path=await picker(win,true);if(path)await atomic(path,{schema:1,model:config.model,contract:pack.id});},
-    async importConfig(win){const path=await picker(win,false);if(!path)return;const v=await read(path);if(v?.schema!==1 || typeof v.model!=='string')throw new Error('配置格式无效');automationEpoch++;await engine.controls({role:'reader-standby',paused:true,auto:false});config.model=v.model;config.baseURL='';config.bindings={};config.allowedGroups=[];await setKey('');Zotero.Prefs.set(PREF,JSON.stringify(config),true);},
+    async importConfig(win){const path=await picker(win,false);if(!path)return;const v=await read(path);if(v?.schema!==1 || typeof v.model!=='string')throw new Error('配置格式无效');automationEpoch++;await engine.controls({role:'reader-standby',paused:true,auto:false});config.model=v.model;config.baseURL='';config.bindings={};config.allowedGroups=[];config.excludedTags=[];config.excludedCollectionKeys=[];await setKey('');saveConfig();},
     async exportReport(win,args,recursive){const path=await picker(win,true);if(path){const r=await api.view(args,recursive);delete r.config;await atomic(path,r);}}
   };
   return {startup,shutdown};

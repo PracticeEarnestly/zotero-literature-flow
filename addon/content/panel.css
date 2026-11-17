@@ -93,6 +93,13 @@ footer { padding-bottom: 10px; }
 .progress-panel progress { width: 100%; height: 18px; accent-color: var(--accent); }
 .progress-panel.error { border-color: var(--danger); }
 .progress-panel.error strong { color: var(--danger); }
+.exclusion-settings { margin-top: 14px; border-color: var(--soft-border); background: var(--bg); }
+.exclusion-settings textarea { width: 100%; min-height: 78px; resize: vertical; font: inherit; }
+.excluded-collections { display: grid; margin-top: 8px; gap: 7px; }
+.excluded-collection { display: flex; padding: 8px 10px; border: 1px solid var(--soft-border); border-radius: 7px; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); }
+.excluded-collection span { overflow-wrap: anywhere; }
+.excluded-collection button { min-height: 32px; margin: 0; padding: 5px 9px; flex: 0 0 auto; }
+.excluded-empty { color: var(--muted); font-size: 14px; }
 
 /* Task queue: filtering, selection and row actions use separate visual layers. */
 #queueSection { overflow: hidden; }

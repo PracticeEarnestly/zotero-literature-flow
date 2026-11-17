@@ -23,6 +23,17 @@ test('A02 a newly synced item is planned even when its source-device dateAdded p
 test('A03 repeated new-item events produce exactly one L1 task and note',async()=>{
  const f=fixture(paper({extra:'',dateAdded:20000}));await f.e.baseline([]);f.e.state.auto=true;await Promise.all([f.e.observe(f.item),f.e.observe(f.item),f.e.observe(f.item)]);await drain(f);assert.equal(f.e.state.tasks.length,1);assert.equal(f.calls,1);assert.equal(f.commits,1);
 });
+test('automatic exclusions cancel unfinished automatic work and preserve the prior baseline',async()=>{
+ const f=fixture(paper({extra:'rate: 2'}));await f.e.baseline([f.item]);f.e.state.auto=true;await f.e.plan(f.item,2,'automatic');f.item.extra='rate: 5';f.item.autoExcluded={tags:['Skip'],collections:[]};await f.e.observe(f.item);
+ assert(f.e.state.tasks.every(t=>t.status==='cancelled'&&t.reason==='automation-excluded'));assert.equal(f.e.state.baseline['user:123/PAPER001'].value,2);assert.equal(f.calls,0);
+});
+test('removing an automatic exclusion revives the same tasks without duplicates',async()=>{
+ const f=fixture(paper({extra:'rate: 2'}));await f.e.baseline([f.item]);f.e.state.auto=true;await f.e.plan(f.item,2,'automatic');f.item.autoExcluded={tags:['Skip'],collections:[]};await f.e.observe(f.item);f.item.autoExcluded=null;await f.e.observe(f.item);
+ assert.deepEqual(f.e.state.tasks.map(t=>t.stage),['L1','L2']);assert(f.e.state.tasks.every(t=>t.status==='queued'&&t.mode==='automatic'));
+});
+test('manual right-click work overrides automatic exclusions',async()=>{
+ const f=fixture(paper({extra:'rate: 0',autoExcluded:{tags:['Skip'],collections:[]}}));await f.e.plan(f.item,1,'manual');await f.e.step();assert.equal(f.calls,1);assert.equal(f.commits,1);assert.equal(f.e.state.tasks[0].mode,'manual');
+});
 test('A03 two-star papers execute L1 then L2 only',async()=>{const f=fixture(paper({extra:'rate: 2'}));await f.e.plan(f.item,C.target(C.rating(f.item.extra)));await drain(f);assert.equal(f.calls,2);assert.deepEqual(f.e.state.tasks.map(t=>t.stage),['L1','L2']);});
 test('A04 prior L1 plus five stars fills only L2 and L3',async()=>{const f=fixture(paper({notes:[note('L1','OLDL1')]}));await f.e.plan(f.item,3);await drain(f);assert.equal(f.calls,2);assert.deepEqual(f.e.state.tasks.map(t=>t.stage),['L2','L3']);});
 test('A05 duplicate and conflicting ratings are explicit, zero is valid',()=>{assert.equal(C.rating('rate: 2\nrate: 5').status,'conflict');assert.equal(C.rating('rate: 6').status,'conflict');assert.equal(C.rating('rate: 0').value,0);assert.equal(C.rating('rate: 5',['rate: 2'],true).status,'conflict');assert.equal(C.rating('rate: 5',['rate: 2']).value,5);assert.equal(C.rating('rate: 3\nrate: 3').value,3);});

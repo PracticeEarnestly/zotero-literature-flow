@@ -211,6 +211,10 @@ var LFCore = (() => {
     async observe(item) {
       return this.serial(async () => {
         if (!this.canRun() || !this.state.auto || !this.state.enabledAt || !item.writable || item.deleted) return;
+        if(item.autoExcluded){
+          for(const t of this.state.tasks)if(t.parent===item.key&&t.scope===item.scope&&t.mode==='automatic'&&!['completed','cancelled'].includes(t.status)){t.generation++;t.status='cancelled';t.reason='automation-excluded';delete t.response;}
+          await this.save();return;
+        }
         const k=item.scope+'/'+item.key, r=rating(item.extra,item.tags,this.state.tagAdapter), old=this.state.baseline[k];
         this.state.baseline[k]=r;
         const changed=old && (old.value !== r.value || old.status !== r.status);
@@ -218,8 +222,8 @@ var LFCore = (() => {
         // is enabled.  A later item absent from that baseline is new to this
         // executor even when Zotero sync preserves an older dateAdded value from
         // the source device.
-        const newItem=!old;
-        if (changed || newItem) await this._plan(item,target(r),'automatic',false, true);
+        const newItem=!old,resumeExcluded=this.state.tasks.some(t=>t.parent===item.key&&t.scope===item.scope&&t.mode==='automatic'&&t.status==='cancelled'&&t.reason==='automation-excluded');
+        if (changed || newItem || resumeExcluded) await this._plan(item,target(r),'automatic',false, true);
         await this.save();
       });
     }
@@ -279,7 +283,7 @@ var LFCore = (() => {
       });
     }
     valid(t,item,generation) {
-      return this.canRun() && t.generation===generation && !['cancelled','completed','failed'].includes(t.status) && item && !item.deleted && item.writable && item.key===t.parent && item.scope===t.scope && (t.mode==='manual' || target(rating(item.extra,item.tags,this.state.tagAdapter))>=stages.indexOf(t.stage)+1);
+      return this.canRun() && t.generation===generation && !['cancelled','completed','failed'].includes(t.status) && item && !item.deleted && item.writable && item.key===t.parent && item.scope===t.scope && (t.mode==='manual' || !item.autoExcluded && target(rating(item.extra,item.tags,this.state.tagAdapter))>=stages.indexOf(t.stage)+1);
     }
     async step() {
       if (this.busy || !this.canRun()) return false;
@@ -295,7 +299,7 @@ var LFCore = (() => {
         t.lastCheckedAt=this.p.now();
         generation=t.generation;
         let item=await this.p.get(t.itemID);
-        if(!this.valid(t,item,generation)) {t.status='cancelled';t.reason='eligibility-lost';await this.save();return true;}
+        if(!this.valid(t,item,generation)) {t.status='cancelled';t.reason=t.mode==='automatic'&&item?.autoExcluded?'automation-excluded':'eligibility-lost';await this.save();return true;}
         let found=inspect(item,this.pack,this.state.tasks);
         const matches=(item.notes||[]).filter(n=>records(n).some(r=>r.task===t.id));
         if(matches.length===1) {t.noteKey=matches[0].key;t.status='completed';await this.save();return true;}

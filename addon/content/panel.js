@@ -4,7 +4,7 @@ let latest,queueState,queueBusy=false,queueTimer,queueSignature='',automationBus
 const selectedTasks=new Set();
 const make=tag=>document.createElementNS('http://www.w3.org/1999/xhtml',tag);
 const taskLabels={queued:'排队中',running:'正在处理',waiting:'等待中',ready_to_commit:'准备保存',completed:'已完成',failed:'失败',cancelled:'已取消'};
-const reasonLabels={'review-combined-note-format':'综合笔记结构已改变，请先核对','review-note-changed':'笔记同时被修改，已停止写入','review-conflicting-notes':'存在重复或冲突的笔记，请核对','review-prerequisite':'前一级结果需核对，已停止后续生成','output-tags-json':'标签格式无法解析；可先检查已存结果','output-tags-boundary':'标签区块缺失或边界异常；可先检查已存结果','output-missing-sections':'缺少必需章节；可先检查已存结果','checking-saved-response':'正在检查已存结果（不调用模型）','review-saved-response-missing':'已存结果缺失，需核对后重新请求','waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','explicit-retry':'等待重试'};
+const reasonLabels={'review-combined-note-format':'综合笔记结构已改变，请先核对','review-note-changed':'笔记同时被修改，已停止写入','review-conflicting-notes':'存在重复或冲突的笔记，请核对','review-prerequisite':'前一级结果需核对，已停止后续生成','output-tags-json':'标签格式无法解析；可先检查已存结果','output-tags-boundary':'标签区块缺失或边界异常；可先检查已存结果','output-missing-sections':'缺少必需章节；可先检查已存结果','checking-saved-response':'正在检查已存结果（不调用模型）','review-saved-response-missing':'已存结果缺失，需核对后重新请求','waiting-pdf':'缺少 PDF','waiting-local-pdf':'PDF 尚未下载','waiting-fulltext-coverage':'全文索引不完整','waiting-fulltext-cache':'尚无全文缓存','waiting-stale-index':'全文索引需更新','waiting-main-pdf-selection':'需选择主文 PDF','waiting-prerequisite':'等待前一级结果','waiting-fulltext-too-long':'全文超出长度限制',paused:'队列已暂停',user:'已由你取消','rating-lowered':'评分降低','automation-disabled':'自动化已关闭','automation-excluded':'符合自动排除规则','explicit-retry':'等待重试'};
 const labels={complete:'完成',missing:'缺失',review:'待核对',conflict:'冲突',deleted:'结果已删除'};
 const inputModes={PDF_TEXT:'Zotero PDF 全文',MINERU_TEXT:'MinerU 全文'};
 function inputLabel(input){
@@ -18,6 +18,17 @@ function inputLabel(input){
   return parts.join(' · ');
 }
 function message(text){$('message').textContent=text;}
+function exclusionLabel(value){
+  if(!value)return '允许自动处理';
+  const parts=[];if(value.tags?.length)parts.push('标签：'+value.tags.join('、'));if(value.collections?.length)parts.push('文件夹规则');
+  return '已排除 · '+parts.join('；');
+}
+async function loadExclusions(){
+  const value=await api.exclusions();$('excludedTags').value=value.tags.join('\n');$('excludedCollections').replaceChildren();
+  for(const collection of value.collections){const row=make('div');row.className='excluded-collection';const name=make('span');name.textContent=collection.name+(collection.available?'':'（当前不可用）');const button=make('button');button.type='button';button.textContent='恢复自动处理';button.addEventListener('click',async()=>{button.disabled=true;try{await api.removeExcludedCollection(collection.identity);message('已恢复该文件夹的自动处理，并重新检查受影响文献。');await loadExclusions();await refresh();}catch(e){message(e.message||String(e));}finally{button.disabled=false;}});row.append(name,button);$('excludedCollections').appendChild(row);}
+  if(!value.collections.length){const empty=make('p');empty.className='excluded-empty';empty.textContent='尚未排除文件夹。';$('excludedCollections').appendChild(empty);}
+  $('exclusionSummary').textContent=`自动排除 · ${value.tags.length} 个标签，${value.collections.length} 个文件夹`;
+}
 const mergePhaseLabels={start:'正在准备合并',checking:'正在核对最新笔记',backup:'正在保存私有备份',write:'正在写入综合笔记',trash:'正在将来源笔记移入回收站',complete:'本篇处理完成',done:'全部合并完成'};
 const mergePhaseStep={start:0,checking:0,backup:1,write:2,trash:3,complete:4,done:4};
 function mergeProgress(progress,error=false){
@@ -48,7 +59,7 @@ async function openMergePreview(){
 async function refresh(){
   latest=await api.view(args,$('recursive').checked);
   $('items').replaceChildren();
-  for(const i of latest.items){const tr=make('tr');for(const text of [i.title,`${i.rating.value??'未评分'} (${i.rating.source}; ${i.rating.status})`,['L1','L2','L3'].map(s=>s+': '+labels[i.levels[s].state]+(i.levels[s].shared?' / 旧 Note':'')).join('\n'),inputLabel(i.input)]){const td=make('td');td.textContent=text;tr.appendChild(td);}$('items').appendChild(tr);}
+  for(const i of latest.items){const tr=make('tr');for(const text of [i.title,`${i.rating.value??'未评分'} (${i.rating.source}; ${i.rating.status})`,['L1','L2','L3'].map(s=>s+': '+labels[i.levels[s].state]+(i.levels[s].shared?' / 旧 Note':'')).join('\n'),exclusionLabel(i.autoExcluded),inputLabel(i.input)]){const td=make('td');td.textContent=text;tr.appendChild(td);}$('items').appendChild(tr);}
   $('summary').textContent=`选择 ${latest.items.length} 篇。只读预览不会请求模型或改写标签。补齐按有效 Note 判断，待核对条目不会自动重算。`;
   await refreshQueue();
   $('attachments').textContent=JSON.stringify(await api.attachments(args),null,2);
@@ -162,6 +173,7 @@ button('saveStart',async()=>{
   }finally{automationBusy=false;await refreshQueue();}
 });
 button('autoOff',async()=>{await api.disableAuto();message('自动化已关闭');});
+button('saveExclusions',async()=>{const tags=$('excludedTags').value.split(/[,，;；\n]+/).map(value=>value.trim()).filter(Boolean);const result=await api.setExcludedTags(tags);message(`自动排除已保存：${result.tags.length} 个标签。已取消 ${result.cancelled} 个不应继续的自动任务；手动右键运行仍有效。`);await loadExclusions();});
 async function runWorkflowAction(action,refreshFirst=true){
   const el=$(action);el.disabled=true;
   try{if(refreshFirst)await refresh();if(confirm(preview(action))){message('正在提交任务…');await api.action(args,$('recursive').checked,action,Number($('level').value));message('操作已提交；请查看队列和条目状态。');await refreshQueue();}}
@@ -188,11 +200,11 @@ button('exportMarkdown',()=>api.exportMarkdown(window,args,$('recursive').checke
 button('report',()=>api.exportReport(window,args,$('recursive').checked));
 async function loadSettings(){
   if(initialAction==='merge'){
-    latest=await api.settings();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;await refreshQueue();await openMergePreview();return;
+    latest=await api.settings();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;await loadExclusions();await refreshQueue();await openMergePreview();return;
   }
-  await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;
+  await refresh();$('role').value=latest.role;$('baseURL').value=latest.config.baseURL;$('model').value=latest.config.model;await loadExclusions();
   const levels={'fill-rating':'0','fill-l1':'1','fill-l2':'2','fill-l3':'3'};
-  if(initialAction in levels){$('level').value=levels[initialAction];await runWorkflowAction('fill',false);}else if(initialAction==='check')message('本分类只读检查完成，没有提交任务。');
+  if(initialAction in levels){$('level').value=levels[initialAction];await runWorkflowAction('fill',false);}else if(initialAction==='check')message('当前选择只读检查完成，没有提交任务。');
 }
 loadSettings().then(()=>{queueTimer=setInterval(()=>refreshQueue().catch(e=>message(e.message)),3000);}).catch(e=>message(e.message));
 window.addEventListener('unload',()=>clearInterval(queueTimer));
