@@ -59,7 +59,7 @@ async function openMergePreview(){
 async function refresh(){
   latest=await api.view(args,$('recursive').checked);
   $('items').replaceChildren();
-  for(const i of latest.items){const tr=make('tr');for(const text of [i.title,`${i.rating.value??'未评分'} (${i.rating.source}; ${i.rating.status})`,['L1','L2','L3'].map(s=>s+': '+labels[i.levels[s].state]+(i.levels[s].shared?' / 旧 Note':'')).join('\n'),exclusionLabel(i.autoExcluded),inputLabel(i.input)]){const td=make('td');td.textContent=text;tr.appendChild(td);}$('items').appendChild(tr);}
+  for(const i of latest.items){const tr=make('tr');for(const text of [i.title,`${i.rating.value??'未评分'} (${i.rating.source}; ${i.rating.status})`,['L1','L2','L3'].map(s=>s+': '+labels[i.levels[s].state]+(i.levels[s].shared?' / 旧 Note':'')).join('\n')+(i.remoteRequests?.length?'\n已提交至 P520：'+i.remoteRequests.map(n=>'L'+n).join('、'):''),exclusionLabel(i.autoExcluded),inputLabel(i.input)]){const td=make('td');td.textContent=text;tr.appendChild(td);}$('items').appendChild(tr);}
   $('summary').textContent=`选择 ${latest.items.length} 篇。只读预览不会请求模型或改写标签。补齐按有效 Note 判断，待核对条目不会自动重算。`;
   await refreshQueue();
   $('attachments').textContent=JSON.stringify(await api.attachments(args),null,2);
@@ -154,6 +154,7 @@ function preview(action){
     if(levels.includes('complete'))repair++;
     if(action==='regenerate' || levels.includes('missing')){if(typeof i.input==='string')waiting++;else planned++;}else skip++;
   }
+  if(action==='fill'&&latest.role==='reader-standby')return `提交给 P520\n范围：${latest.items.length} 篇，其中可写 ${eligible.length} 篇\n级别：${level?'补齐至 L'+level:'按当前评分'}\n请求会随 Zotero 数据同步到 P520，由 P520 统一运行。请确认本机与 P520 使用同一 Zotero 账号并已启用数据同步。\n`+eligible.map(i=>i.title).slice(0,20).join('\n')+'\n\n确认提交？';
   return `操作：${action}\n范围：${latest.items.length} 篇，其中可写 ${eligible.length} 篇\n级别：${level?'L'+level:'当前评分'}\n预计可推理 ${planned} 篇，等待输入 ${waiting} 篇，待核对 ${review} 篇，已有结果 ${skip} 篇；可核对完成标签 ${repair} 篇。\n修复标签与保护副本均不调用模型。最终执行前会再次核对。\n`+eligible.map(i=>i.title).slice(0,20).join('\n')+'\n\n确认执行？';
 }
 button('refresh',async()=>message('只读检查完成'));
@@ -176,7 +177,7 @@ button('autoOff',async()=>{await api.disableAuto();message('自动化已关闭')
 button('saveExclusions',async()=>{const tags=$('excludedTags').value.split(/[,，;；\n]+/).map(value=>value.trim()).filter(Boolean);const result=await api.setExcludedTags(tags);message(`自动排除已保存：${result.tags.length} 个标签。已取消 ${result.cancelled} 个不应继续的自动任务；手动右键运行仍有效。`);await loadExclusions();});
 async function runWorkflowAction(action,refreshFirst=true){
   const el=$(action);el.disabled=true;
-  try{if(refreshFirst)await refresh();if(confirm(preview(action))){message('正在提交任务…');await api.action(args,$('recursive').checked,action,Number($('level').value));message('操作已提交；请查看队列和条目状态。');await refreshQueue();}}
+  try{if(refreshFirst)await refresh();if(confirm(preview(action))){message('正在提交任务…');const result=await api.action(args,$('recursive').checked,action,Number($('level').value));message(result?.submitted!==undefined?`已提交 ${result.submitted} 篇到 P520；${result.alreadyPending} 篇已有待处理请求，${result.alreadyComplete} 篇已有完整结果。请同步 Zotero。`:'操作已提交；请查看队列和条目状态。');await refreshQueue();}}
   catch(e){message(e.message||String(e));}finally{el.disabled=false;}
 }
 for(const action of ['fill','repair','retry','cancel','regenerate','protect'])$(action).addEventListener('click',()=>runWorkflowAction(action));

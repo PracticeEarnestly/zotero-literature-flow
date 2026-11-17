@@ -4,6 +4,7 @@ var LiteratureFlow = (() => {
   let engine,pack,dir,config,observer,timer,stopped=false,writeChain=Promise.resolve(),automationEpoch=0,lastReconcileAt=0;
   const debounce=new Map(),menuIDs=[],panels=new Set(),controllers=new Set(),fulltextAttempts=new Map();
   const defaults={baseURL:'',model:'Qwen3.6-27B-AWQ-Hermes-256K',allowedGroups:[],excludedTags:[],excludedCollectionKeys:[],debounceMs:2500,intervalMs:5000,reconcileMs:300000,fulltextRetryMs:900000,bindings:{}};
+  const requestPattern=/^LF:Request:L([123]):([0-9a-f-]{36})$/i;
   const uuid=()=>Services.uuid.generateUUID().toString().replace(/[{}]/g,'');
   const hash=text=>{
     const bytes=new TextEncoder().encode(text),h=Components.classes['@mozilla.org/security/hash;1'].createInstance(Components.interfaces.nsICryptoHash);
@@ -82,6 +83,28 @@ var LiteratureFlow = (() => {
       const snapshot=await get(item.id);if(snapshot){await engine.observe(snapshot);changed++;}
     }
     return changed;
+  }
+  async function acceptRequests(item){
+    if(!engine.canRun()||!item?.writable||item.deleted)return;
+    const requests=item.tags.map(tag=>({tag,match:requestPattern.exec(tag)})).filter(x=>x.match);
+    for(const {tag,match} of requests){
+      const level=Number(match[1]),receipt=match[2].toLowerCase();
+      const states=C.inspect(item,pack,engine.state.tasks);
+      if(C.stages.slice(0,level).every(stage=>states[stage].state==='complete')){
+        const parent=await Zotero.Items.getAsync(item.id);
+        if(parent?.hasTag(tag))await Zotero.DB.executeTransaction(async()=>{const current=await Zotero.Items.getAsync(item.id);if(current?.hasTag(tag)){current.removeTag(tag);await current.save();}});
+        continue;
+      }
+      if(engine.state.remoteRequests?.[receipt])continue;
+      if(C.stages.slice(0,level).some(stage=>['review','conflict','deleted'].includes(states[stage].state)))continue;
+      await engine.plan(item,level,'manual');
+      engine.state.remoteRequests||={};engine.state.remoteRequests[receipt]={scope:item.scope,parent:item.key,level,tag,at:Date.now()};
+      await engine.save();
+    }
+  }
+  async function reconcileRequests(){
+    if(!engine?.canRun())return;
+    for(const item of await allItems())if(item.tags.some(tag=>requestPattern.test(tag)))await acceptRequests(item);
   }
   async function applyExclusionRules(){
     const items=await allItems();let cancelled=0;
@@ -243,7 +266,7 @@ var LiteratureFlow = (() => {
     engine.state.device ||= uuid();await engine.recover();
     if(engine.state.role!=='disabled')registerObserver();
     registerMenus();
-    if(engine.canRun() && engine.state.auto)await reconcileAuto();
+    if(engine.canRun()){await reconcileRequests();if(engine.state.auto)await reconcileAuto();}
     lastReconcileAt=Date.now();
     schedule();
   }
@@ -256,15 +279,16 @@ var LiteratureFlow = (() => {
         debounce.delete(id);
         try{
           const raw=await Zotero.Items.getAsync(id),items=await normalized(raw?[raw]:[]);
-          for(const item of items)await engine.observe(item);
+          for(const item of items){await acceptRequests(item);await engine.observe(item);}
           for(const t of engine.state.tasks)if(t.status==='waiting' && /^waiting-/.test(t.reason||''))t.nextAt=0;
         }catch{Zotero.debug('[Literature Flow] notifier reconciliation failed');}
       },config.debounceMs));}
     }},['item'],'literature-flow-v1');
   }
   function schedule(){if(stopped)return;timer=setTimeout(async()=>{try{
-    if(Date.now()-lastReconcileAt>=config.reconcileMs){lastReconcileAt=Date.now();await reconcileAuto();}
-    await engine.step();
+    if(Date.now()-lastReconcileAt>=config.reconcileMs){lastReconcileAt=Date.now();await reconcileRequests();await reconcileAuto();}
+    const stepped=await engine.step();
+    if(stepped&&engine.canRun())for(const item of await normalized(engine.state.tasks.filter(t=>t.mode==='manual'&&t.status==='completed'&&Object.values(engine.state.remoteRequests||{}).some(r=>r.parent===t.parent&&r.scope===t.scope)).map(t=>t.itemID)))if(item.tags.some(tag=>requestPattern.test(tag)))await acceptRequests(item);
   }catch{Zotero.debug('[Literature Flow] worker error');}schedule();},config.intervalMs);}
   async function shutdown(){
     automationEpoch++;stopped=true;clearTimeout(timer);for(const t of debounce.values())clearTimeout(t);debounce.clear();
@@ -400,7 +424,7 @@ var LiteratureFlow = (() => {
       const items=await selected(args,recursive);
       const report=[];
       for(const i of items){let source;try{const s=await input(i);source={mode:s.mode,characters:s.text.length,coverage:s.coverage};}catch(e){source=e.message;}
-        report.push({id:i.id,key:i.key,title:i.title,writable:i.writable,autoExcluded:i.autoExcluded,rating:C.rating(i.extra,i.tags,engine.state.tagAdapter),levels:Object.fromEntries(Object.entries(C.inspect(i,pack,engine.state.tasks)).map(([s,v])=>[s,{state:v.state,note:v.note?.key,shared:v.shared}])),input:source});}
+        report.push({id:i.id,key:i.key,title:i.title,writable:i.writable,autoExcluded:i.autoExcluded,remoteRequests:i.tags.filter(tag=>requestPattern.test(tag)).map(tag=>Number(requestPattern.exec(tag)[1])),rating:C.rating(i.extra,i.tags,engine.state.tagAdapter),levels:Object.fromEntries(Object.entries(C.inspect(i,pack,engine.state.tasks)).map(([s,v])=>[s,{state:v.state,note:v.note?.key,shared:v.shared}])),input:source});}
       return {config:{...config,bindings:undefined},role:engine.state.role,paused:engine.state.paused,auto:engine.state.auto,baseline:!!engine.state.enabledAt,contract:pack.id,items:report,tasks:engine.state.tasks.map(({id,parent,stage,status,reason,mode,revision,attempts})=>({id,parent,stage,status,reason,mode,revision,attempts}))};
     },
     async configure(values,token){
@@ -414,7 +438,7 @@ var LiteratureFlow = (() => {
       await engine.controls({role:values.role});
       if(values.role==='disabled' && observer){Zotero.Notifier.unregisterObserver(observer);observer=null;}else if(values.role!=='disabled')registerObserver();
     },
-    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});await reconcileAuto(true);},
+    async resume(){automationEpoch++;if(engine.state.role!=='executor')throw new Error('只有 executor 可以执行');await engine.controls({paused:false});await reconcileRequests();await reconcileAuto(true);},
     async pause(){automationEpoch++;await engine.controls({paused:true});for(const c of controllers)c.abort();},
     async startAutomation({activateExecutor=false}={}){
       const epoch=++automationEpoch;
@@ -432,12 +456,26 @@ var LiteratureFlow = (() => {
       if(epoch!==automationEpoch)throw new Error('开启已中止：设置或暂停状态已改变');
       registerObserver();
       await engine.controls({role:'executor',auto:true,paused:false});
+      await reconcileRequests();
       await reconcileAuto(true);
     },
     async enableAuto(){return api.startAutomation();},
     async disableAuto(){automationEpoch++;await engine.controls({auto:false});for(const t of engine.state.tasks)if(t.mode==='automatic' && t.status!=='completed'){t.status='cancelled';t.generation++;t.reason='automation-disabled';}await engine.save();},
     async action(args,recursive,action,level){
       const items=await selected(args,recursive);
+      if(engine.state.role==='reader-standby'&&action==='fill'){
+        let submitted=0,alreadyPending=0,alreadyComplete=0;
+        for(const item of items){if(!item.writable||item.deleted)continue;
+          const goal=level||C.target(C.rating(item.extra,item.tags,engine.state.tagAdapter));
+          if(!goal)continue;
+          const states=C.inspect(item,pack,engine.state.tasks);
+          if(C.stages.slice(0,goal).every(stage=>states[stage].state==='complete')){alreadyComplete++;continue;}
+          const parent=await Zotero.Items.getAsync(item.id),pending=parent.getTags().map(t=>requestPattern.exec(t.tag)).filter(Boolean);
+          if(pending.some(match=>Number(match[1])>=goal)){alreadyPending++;continue;}
+          await Zotero.DB.executeTransaction(async()=>{const current=await Zotero.Items.getAsync(item.id);if(!current||current.deleted||!allowed(current))throw new Error('文献已不可写');current.addTag('LF:Request:L'+goal+':'+uuid());await current.save();});submitted++;
+        }
+        return {submitted,alreadyPending,alreadyComplete};
+      }
       if(!engine.canRun())throw new Error('当前为待机或暂停，请先在设置中启用执行端并恢复队列');
       if(action==='cancel')return engine.cancel(items);
       if(action==='repair' || action==='protect')return engine.serial(async()=>{

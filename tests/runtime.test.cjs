@@ -4,7 +4,7 @@ const plain=v=>JSON.parse(JSON.stringify(v));
 function runtime(){
  const files=new Map(),menus=[],timers=[],logins=[],items=new Map();let prefs='{}',args,saves=0,requests=0,commits=0,tx=false,timerID=0;
  const main={ZoteroPane:{getSelectedItems:()=>[parent],getSelectedCollection:()=>null},openDialog:(url,name,features,a)=>{args=a;return {close(){}};}};
- const parent={id:1,key:'PAPER001',libraryID:1,dateAdded:'2026-10-22 01:00:00',deleted:false,tags:[],notes:[],isRegularItem:()=>true,getNotes:()=>parent.notes,getAttachments:()=>[2],getCollections:()=>[3],getCreators:()=>[{firstName:'A',lastName:'Author'}],getField:k=>({extra:'rate: 2',title:'Test paper'}[k]||''),getTags:()=>parent.tags.map(tag=>({tag})),hasTag:t=>parent.tags.includes(t),addTag:t=>{if(!parent.tags.includes(t))parent.tags.push(t);},save:async()=>{assert(tx);saves++;}};
+ const parent={id:1,key:'PAPER001',libraryID:1,dateAdded:'2026-10-22 01:00:00',deleted:false,tags:[],notes:[],isRegularItem:()=>true,getNotes:()=>parent.notes,getAttachments:()=>[2],getCollections:()=>[3],getCreators:()=>[{firstName:'A',lastName:'Author'}],getField:k=>({extra:'rate: 2',title:'Test paper'}[k]||''),getTags:()=>parent.tags.map(tag=>({tag})),hasTag:t=>parent.tags.includes(t),addTag:t=>{if(!parent.tags.includes(t))parent.tags.push(t);},removeTag:t=>{parent.tags=parent.tags.filter(tag=>tag!==t);},save:async()=>{assert(tx);saves++;}};
  const attachment={id:2,key:'PDF00001',parentItemID:1,attachmentContentType:'application/pdf',deleted:false,getFilePathAsync:async()=>'/attachment/paper.pdf',getField:()=> 'Main PDF',isRegularItem:()=>false};items.set(1,parent);items.set(2,attachment);files.set('/attachment/paper.pdf','pdf');files.set('/cache/pdf','Full original paper');
  const lib={libraryID:1,libraryType:'user',editable:true};
  const collections=new Map([[2,{id:2,key:'ROOTCOLL',libraryID:1,name:'Root',parentID:null,getChildItems:()=>[parent]}],[3,{id:3,key:'CHILDCOL',libraryID:1,name:'Child',parentID:2,getChildItems:()=>[parent]}]]);
@@ -67,6 +67,18 @@ test('excluding a collection also excludes papers in descendant collections',asy
  const r=runtime();await r.start();const result=await r.args.api.toggleCollectionExclusion([2]);assert.equal(result.excluded,true);assert.equal(result.exclusions.collections[0].name,'Root');
  const view=await r.args.api.view(r.args,false);assert.deepEqual(plain(view.items[0].autoExcluded.collections),['1:ROOTCOLL']);
  await r.args.api.removeExcludedCollection('1:ROOTCOLL');assert.equal((await r.args.api.exclusions()).collections.length,0);assert.equal((await r.args.api.view(r.args,false)).items[0].autoExcluded,null);
+});
+test('standby submits one synced request, executor accepts it once and clears it after the note completes',async()=>{
+ const r=runtime();await r.start();const first=await r.args.api.action(r.args,false,'fill',1),second=await r.args.api.action(r.args,false,'fill',1);
+ assert.equal(first.submitted,1);assert.equal(second.alreadyPending,1);assert.equal(r.requests,0);assert.equal((await r.args.api.view(r.args,false)).items[0].remoteRequests[0],1);
+ await r.args.api.configure({role:'executor',baseURL:'http://localhost:9527/v1',model:'test'},'');await r.args.api.startAutomation();
+ assert.equal((await r.args.api.queue()).tasks.length,1);await r.tick();assert.equal(r.requests,1);assert.equal(r.commits,1);
+ assert.equal(r.parent.tags.some(tag=>tag.startsWith('LF:Request:')),false);assert.equal((await r.args.api.view(r.args,false)).items[0].levels.L1.state,'complete');
+});
+test('synced manual request bypasses automatic exclusion and is not queued twice',async()=>{
+ const r=runtime();await r.start();r.parent.tags.push('Skip');await r.args.api.setExcludedTags(['Skip']);await r.args.api.action(r.args,false,'fill',1);
+ await r.args.api.configure({role:'executor',baseURL:'http://localhost:9527/v1',model:'test'},'');await r.args.api.startAutomation();await r.args.api.startAutomation();
+ const q=await r.args.api.queue();assert.equal(q.tasks.length,1);assert.equal(q.tasks[0].mode,'manual');await r.tick();assert.equal(r.requests,1);
 });
 test('first automation start during sync stays paused and leaves history uninitialized',async()=>{
  const r=runtime();await r.start();await r.configure();r.Zotero.Sync={Runner:{syncInProgress:true}};
