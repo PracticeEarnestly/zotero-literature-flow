@@ -1,0 +1,368 @@
+{
+  "testedAt": "2026-10-22T10:55:42.175Z",
+  "host": "P520",
+  "zotero": "9.0.1",
+  "isolatedProfile": true,
+  "addons": [
+    {
+      "id": "zotero-ai-butler@github.com",
+      "version": "5.1.0",
+      "active": true
+    },
+    {
+      "id": "literatureflow@zotero.local",
+      "version": "0.3.1",
+      "active": true
+    }
+  ],
+  "source": {
+    "mode": "PDF_TEXT",
+    "characters": 41911,
+    "coverage": {
+      "indexedPages": 10,
+      "total": 10
+    }
+  },
+  "levels": {
+    "L1": {
+      "state": "complete",
+      "note": "5YKPVZ23",
+      "shared": false
+    },
+    "L2": {
+      "state": "complete",
+      "note": "IA927A52",
+      "shared": false
+    },
+    "L3": {
+      "state": "complete",
+      "note": "JFN4AUQE",
+      "shared": false
+    }
+  },
+  "primaryTasks": [
+    {
+      "stage": "L1",
+      "status": "completed",
+      "attempts": 3
+    },
+    {
+      "stage": "L2",
+      "status": "completed",
+      "attempts": 1
+    },
+    {
+      "stage": "L3",
+      "status": "completed",
+      "attempts": 1
+    }
+  ],
+  "notes": [
+    {
+      "key": "5YKPVZ23",
+      "characters": 819,
+      "tags": [
+        "LF:Note"
+      ],
+      "hasMarker": true,
+      "hasH1H2": false
+    },
+    {
+      "key": "IA927A52",
+      "characters": 8698,
+      "tags": [
+        "LF:Note"
+      ],
+      "hasMarker": true,
+      "hasH1H2": false
+    },
+    {
+      "key": "JFN4AUQE",
+      "characters": 9280,
+      "tags": [
+        "LF:Note"
+      ],
+      "hasMarker": true,
+      "hasH1H2": false
+    }
+  ],
+  "parentTags": [
+    "AI:L1",
+    "AI:L2",
+    "AI:L3",
+    "Data:NotApplicable",
+    "Evidence:E2"
+  ],
+  "responses": [
+    {
+      "stage": "L1",
+      "finish": "stop",
+      "model": "Qwen3.6-27B-AWQ-Hermes-256K",
+      "usage": {
+        "prompt_tokens": 15468,
+        "total_tokens": 20029,
+        "completion_tokens": 4561,
+        "prompt_tokens_details": {
+          "cached_tokens": 12480
+        }
+      },
+      "inputMode": "PDF_TEXT",
+      "inputCharacters": 41911,
+      "coverage": {
+        "indexedPages": 10,
+        "total": 10
+      },
+      "outputCharacters": 636
+    },
+    {
+      "stage": "L2",
+      "finish": "stop",
+      "model": "Qwen3.6-27B-AWQ-Hermes-256K",
+      "usage": {
+        "prompt_tokens": 15853,
+        "total_tokens": 27556,
+        "completion_tokens": 11703,
+        "prompt_tokens_details": null
+      },
+      "inputMode": "PDF_TEXT",
+      "inputCharacters": 41911,
+      "coverage": {
+        "indexedPages": 10,
+        "total": 10
+      },
+      "outputCharacters": 7233
+    },
+    {
+      "stage": "L3",
+      "finish": "stop",
+      "model": "Qwen3.6-27B-AWQ-Hermes-256K",
+      "usage": {
+        "prompt_tokens": 17768,
+        "total_tokens": 29254,
+        "completion_tokens": 11486,
+        "prompt_tokens_details": null
+      },
+      "inputMode": "PDF_TEXT",
+      "inputCharacters": 41911,
+      "coverage": {
+        "indexedPages": 10,
+        "total": 10
+      },
+      "outputCharacters": 7755
+    }
+  ],
+  "duplicateCheck": {
+    "before": 7,
+    "after": 7
+  },
+  "legacy": {
+    "at": "2026-10-22T10:30:25.188Z",
+    "legacyRepairUnchanged": true,
+    "legacyLevels": {
+      "L1": {
+        "state": "complete",
+        "note": "K97ZP9G7",
+        "shared": true
+      },
+      "L2": {
+        "state": "complete",
+        "note": "K97ZP9G7",
+        "shared": true
+      },
+      "L3": {
+        "state": "complete",
+        "note": "K97ZP9G7",
+        "shared": true
+      }
+    },
+    "autoTasks": [
+      {
+        "stage": "L1",
+        "status": "queued",
+        "attempts": 0
+      },
+      {
+        "stage": "L2",
+        "status": "cancelled",
+        "reason": "rating-lowered",
+        "attempts": 0
+      },
+      {
+        "stage": "L3",
+        "status": "cancelled",
+        "reason": "rating-lowered",
+        "attempts": 0
+      }
+    ]
+  },
+  "legacyProtection": {
+    "originalUnchanged": true,
+    "notesAfterFirst": 4,
+    "notesAfterRepeat": 4,
+    "levels": {
+      "L1": {
+        "state": "complete",
+        "note": "EGJ7584C",
+        "shared": false
+      },
+      "L2": {
+        "state": "complete",
+        "note": "EFLMN5S8",
+        "shared": false
+      },
+      "L3": {
+        "state": "complete",
+        "note": "92LTNTDR",
+        "shared": false
+      }
+    }
+  },
+  "officialSummary": {
+    "fixture": "Separate copy of the same paper with two generated LF Notes",
+    "notes": [
+      {
+        "key": "LUPDF9N7",
+        "characters": 6698,
+        "tags": [
+          "AI-Table"
+        ],
+        "lfUnchanged": null
+      },
+      {
+        "key": "28JQBVFM",
+        "characters": 51585,
+        "tags": [
+          "AI-Summary"
+        ],
+        "lfUnchanged": null
+      },
+      {
+        "key": "FJPLIXBY",
+        "characters": 819,
+        "tags": [
+          "LF:Note"
+        ],
+        "lfUnchanged": true
+      },
+      {
+        "key": "S6ATR6ZW",
+        "characters": 8698,
+        "tags": [
+          "LF:Note"
+        ],
+        "lfUnchanged": true
+      }
+    ],
+    "queue": [
+      {
+        "status": "completed",
+        "type": "summary"
+      }
+    ]
+  },
+  "missingPDF": [
+    {
+      "stage": "L1",
+      "status": "waiting",
+      "reason": "waiting-pdf",
+      "attempts": 0
+    },
+    {
+      "stage": "L2",
+      "status": "cancelled",
+      "reason": "automation-disabled",
+      "attempts": 0
+    },
+    {
+      "stage": "L3",
+      "status": "cancelled",
+      "reason": "automation-disabled",
+      "attempts": 0
+    }
+  ],
+  "restart": {
+    "version": "9.0.1",
+    "role": "reader-standby",
+    "paused": true,
+    "auto": false,
+    "notesUnchanged": true,
+    "noteCount": 3,
+    "levels": {
+      "L1": {
+        "state": "complete",
+        "note": "5YKPVZ23",
+        "shared": false
+      },
+      "L2": {
+        "state": "complete",
+        "note": "IA927A52",
+        "shared": false
+      },
+      "L3": {
+        "state": "complete",
+        "note": "JFN4AUQE",
+        "shared": false
+      }
+    },
+    "tasks": [
+      {
+        "stage": "L1",
+        "status": "completed",
+        "attempts": 3
+      },
+      {
+        "stage": "L2",
+        "status": "completed",
+        "attempts": 1
+      },
+      {
+        "stage": "L3",
+        "status": "completed",
+        "attempts": 1
+      },
+      {
+        "stage": "L1",
+        "status": "cancelled",
+        "attempts": 0
+      },
+      {
+        "stage": "L2",
+        "status": "cancelled",
+        "attempts": 0
+      },
+      {
+        "stage": "L3",
+        "status": "cancelled",
+        "attempts": 0
+      },
+      {
+        "stage": "L1",
+        "status": "cancelled",
+        "attempts": 0
+      }
+    ],
+    "menuRegistrations": 1
+  },
+  "finalIntegrity": {
+    "productionDBUnchanged": true,
+    "oldQueueUnchanged": true,
+    "oldPluginPaused": true,
+    "temporaryDriverRemoved": true,
+    "installedLFSHA256": "d223d16a40c28c6f0232028886ae666936be34df4b394a4c50c50feadee6e6de",
+    "officialButlerSHA256": "5ffc86bc4a0eea2ca618dde628cc8174ddea9c64a0cdb25b2717016457a1f175"
+  },
+  "finalAddons": [
+    {
+      "id": "zotero-ai-butler@github.com",
+      "version": "5.1.0",
+      "active": true
+    },
+    {
+      "id": "literatureflow@zotero.local",
+      "version": "0.3.1",
+      "active": true
+    }
+  ],
+  "codeRevision": "b84a3cd787eed19e03763df0a502164c9cefcb9d",
+  "recoveryNote": "L1 attempts include two client-side interruptions during runtime debugging. L3 was revalidated from its saved response after fixing nested heading validation; its request count remained one. This was a controlled test-state recovery, not an automatic production migration."
+}

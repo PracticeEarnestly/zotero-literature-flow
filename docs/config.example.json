@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "model": "Qwen3.6-27B-AWQ-Hermes-256K",
+  "contract": "p520-butler-5.1.0.3-20261022"
+}

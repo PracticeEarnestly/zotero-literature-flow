@@ -1,0 +1,2 @@
+> zotero-literature-flow@0.4.4 check
+> node --check addon/bootstrap.js && node --check addon/content/core.js && node --check addon/content/notes.js && node --check addon/content/workflow.js && node --check addon/content/panel.js

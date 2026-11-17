@@ -1,0 +1,172 @@
+{
+  "host": "P520",
+  "zotero": "9.0.1",
+  "literatureFlow": "0.3.3",
+  "backup": {
+    "root": "/home/xiqing/literature-flow-migration/20261022-215313",
+    "verifiedFiles": 13205,
+    "bytes": 11048649080,
+    "integrity": "ok",
+    "databaseSHA256": "7e329619e934c3b6bcefbccb04d4e3dc9148aadd7fceb48cb81d93fec4ce871d",
+    "oldQueue": {
+      "completed": 76,
+      "processing": 1,
+      "pending": 9
+    },
+    "oldControls": {
+      "extensions.zotero.aiButler.autoScan": false,
+      "extensions.zotero.aiButler.ratingWorkflowEnabled": false,
+      "extensions.zotero.aiButler.workflowDeviceRole": "reader-standby"
+    }
+  },
+  "historyAudit": {
+    "items": 1926,
+    "notes": 1942,
+    "levels": {
+      "L1": {
+        "missing": 1334,
+        "review": 482,
+        "complete": 110
+      },
+      "L2": {
+        "missing": 1424,
+        "review": 333,
+        "complete": 169
+      },
+      "L3": {
+        "missing": 1541,
+        "review": 344,
+        "complete": 41
+      }
+    },
+    "itemsWithReviewOrConflict": 484,
+    "historicalReplayPasses": 3,
+    "historicalAutomaticTasks": 0,
+    "completedReviewConflictRescheduled": 0,
+    "modelRequests": 0
+  },
+  "oldQueueAudit": {
+    "completed/review": 17,
+    "completed/complete": 59,
+    "processing/complete": 1,
+    "pending/complete": 5,
+    "pending/review": 4
+  },
+  "initialAutomation": {
+    "at": "2026-10-22T14:07:31.810Z",
+    "role": "executor",
+    "paused": false,
+    "auto": true,
+    "baselineItems": 1926,
+    "enabledAt": 1792678051797,
+    "tasks": 0,
+    "modelAvailable": true,
+    "officialQueue": 0,
+    "officialAutoScan": false,
+    "syncInProgress": false
+  },
+  "uiAppearance": {
+    "fixtureOnly": true,
+    "rows": 4,
+    "fontSize": "16px",
+    "textColor": "rgb(23, 43, 50)",
+    "fieldBackground": "rgb(255, 255, 255)",
+    "oldLightDarkSupported": true,
+    "taskTableVisible": true
+  },
+  "uiInteractions": {
+    "fixtureOnly": true,
+    "bulkCancelExactIDs": true,
+    "singleCancelExactID": true,
+    "retryOnlyFailed": true,
+    "completedPreserved": true,
+    "statusFilter": true,
+    "titleSearch": true,
+    "calls": [
+      {
+        "ids": [
+          "demo1"
+        ],
+        "action": "cancel"
+      },
+      {
+        "ids": [
+          "demo2"
+        ],
+        "action": "cancel"
+      },
+      {
+        "ids": [
+          "demo3"
+        ],
+        "action": "retry"
+      }
+    ]
+  },
+  "closedDatabaseReadback": {
+    "checkedAt": "2026-10-22T14:45:11.623475+00:00",
+    "addons": [
+      {
+        "id": "zotero-ai-butler@github.com",
+        "version": "5.1.0",
+        "active": true,
+        "userDisabled": false
+      },
+      {
+        "id": "literatureflow@zotero.local",
+        "version": "0.3.3",
+        "active": true,
+        "userDisabled": false
+      }
+    ],
+    "role": "executor",
+    "paused": false,
+    "auto": true,
+    "personalBaselineItems": 1926,
+    "totalBaselineEntries": 1926,
+    "nonactionableFeedEntries": 0,
+    "baselinePreservedOnRestart": true,
+    "lfTasks": 0,
+    "lfModelAttempts": 0,
+    "officialTasks": 0,
+    "officialAutoScan": false,
+    "historicalNoteBodiesUnchanged": 1942,
+    "historicalTablesUnchanged": {
+      "personalItems": true,
+      "personalNotes": true,
+      "personalFields": true,
+      "personalTags": false,
+      "parentTags": true
+    },
+    "upstreamLegacyNoteSummaryTagAdditions": 2,
+    "databaseIntegrity": "ok",
+    "oldCustomPluginQuarantined": true,
+    "oldQueueArchivedTasks": 86,
+    "temporaryDriverRemoved": true,
+    "productionProcessCount": 0,
+    "packageHashesVerified": true
+  },
+  "finalLive": {
+    "at": "2026-10-22T14:45:57.213532+00:00",
+    "role": "executor",
+    "paused": false,
+    "auto": true,
+    "baselineItems": 1926,
+    "baselineTimestampPreserved": true,
+    "tasks": 0,
+    "productionProcesses": 1,
+    "temporaryDriverRemoved": true,
+    "addons": [
+      {
+        "id": "zotero-ai-butler@github.com",
+        "version": "5.1.0",
+        "active": true
+      },
+      {
+        "id": "literatureflow@zotero.local",
+        "version": "0.3.3",
+        "active": true
+      }
+    ]
+  }
+}

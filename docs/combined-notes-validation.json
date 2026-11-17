@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-22T21:46:06.176Z",
+  "version": "0.4.0",
+  "oldNotesUnchanged": 1949,
+  "combinedNotes": 3,
+  "archivedOriginalLFNotes": 4,
+  "nativeEditorVerified": true,
+  "nativeMarkdownExportVerified": true,
+  "modelRequestsAddedDuringMigration": 0,
+  "baselineItems": 1926,
+  "baselinePreserved": true,
+  "role": "executor",
+  "paused": false,
+  "auto": true,
+  "officialQueue": 0,
+  "officialAutoScan": false,
+  "tasks": [
+    {
+      "stage": "L2",
+      "status": "completed",
+      "attempts": 1
+    },
+    {
+      "stage": "L3",
+      "status": "completed",
+      "attempts": 1
+    },
+    {
+      "stage": "L2",
+      "status": "completed",
+      "attempts": 1
+    },
+    {
+      "stage": "L2",
+      "status": "completed",
+      "attempts": 1
+    },
+    {
+      "stage": "L3",
+      "status": "waiting",
+      "attempts": 0
+    },
+    {
+      "stage": "L2",
+      "status": "waiting",
+      "attempts": 0
+    },
+    {
+      "stage": "L3",
+      "status": "waiting",
+      "attempts": 0
+    }
+  ],
+  "temporaryDriverRemoved": true
+}

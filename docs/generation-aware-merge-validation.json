@@ -1,0 +1,42 @@
+{
+  "version": "0.4.6",
+  "validatedAt": "2026-10-23T01:11:03Z",
+  "host": "P520",
+  "zotero": "9.0.1",
+  "aiButler": {
+    "version": "5.1.0",
+    "active": true
+  },
+  "target": {
+    "key": "RINLMV5W",
+    "title": "Oral exposure to PET microplastics induces the pancreatic immune response and oxidative stress in immature pigs"
+  },
+  "preview": {
+    "papers": 1,
+    "sources": 1,
+    "stage": "L2",
+    "selectedNoteKey": "MF8JE3WH",
+    "selectedAt": "2026-09-23T06:51:20.429Z",
+    "basis": "AI 生成时间",
+    "writePerformed": false
+  },
+  "stateBeforeAfter": {
+    "equal": true,
+    "role": "executor",
+    "paused": false,
+    "auto": true,
+    "baseline": 1926,
+    "tasks": {
+      "completed": 6,
+      "failed": 1,
+      "active": 0
+    },
+    "modelAttempts": 7
+  },
+  "notesUnchanged": true,
+  "temporaryDriverRemoved": true,
+  "xpi": {
+    "sha256": "75137a9b09912be0e160fc24a1f6c01aa811841919048303dcff36b417c76f82",
+    "bytes": 108073
+  }
+}

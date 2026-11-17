@@ -1,0 +1,103 @@
+{
+  "version": "0.3.4",
+  "testsPassed": 59,
+  "xpiSHA256": "128d0f47025dd1d6e943377427d8781ba0ecd45b86dd64a46ed62aa562fbbd96",
+  "nativeUI": {
+    "version": "0.3.4",
+    "status": "自动处理已开启",
+    "primaryButton": "暂停自动处理",
+    "advancedCollapsed": true,
+    "taskTableBeforeManual": true,
+    "fontSize": "16px",
+    "foreground": "rgb(23, 43, 50)",
+    "background": "rgb(255, 255, 255)",
+    "realButtonResumePauseResume": true,
+    "baselineUnchanged": true,
+    "baselineItems": 1926,
+    "enabledAt": 1792678051797,
+    "tasks": 0,
+    "paused": false,
+    "auto": true,
+    "at": "2026-10-22T15:07:40.756Z"
+  },
+  "onboardingFixture": {
+    "fixtureOnly": true,
+    "noRealModelRequests": true,
+    "settingsOnlyDoesNotStart": true,
+    "saveAndStartOneAction": true,
+    "advancedCollapsesAfterSave": true,
+    "roleDisplayFollowsPromotion": true,
+    "calls": [
+      "configure",
+      "start",
+      "start"
+    ]
+  },
+  "historyReadback": {
+    "checkedAt": "2026-10-22T15:09:08.955576+00:00",
+    "addons": [
+      {
+        "id": "zotero-ai-butler@github.com",
+        "version": "5.1.0",
+        "active": true,
+        "userDisabled": false
+      },
+      {
+        "id": "literatureflow@zotero.local",
+        "version": "0.3.4",
+        "active": true,
+        "userDisabled": false
+      }
+    ],
+    "role": "executor",
+    "paused": false,
+    "auto": true,
+    "personalBaselineItems": 1926,
+    "totalBaselineEntries": 1926,
+    "nonactionableFeedEntries": 0,
+    "baselinePreservedOnRestart": true,
+    "lfTasks": 0,
+    "lfModelAttempts": 0,
+    "officialTasks": 0,
+    "officialAutoScan": false,
+    "historicalNoteBodiesUnchanged": 1942,
+    "historicalTablesUnchanged": {
+      "personalItems": true,
+      "personalNotes": true,
+      "personalFields": true,
+      "personalTags": false,
+      "parentTags": true
+    },
+    "upstreamLegacyNoteSummaryTagAdditions": 2,
+    "databaseIntegrity": "ok",
+    "oldCustomPluginQuarantined": true,
+    "oldQueueArchivedTasks": 86,
+    "temporaryDriverRemoved": true,
+    "productionProcessCount": 0,
+    "packageHashesVerified": true
+  },
+  "restartReadback": {
+    "at": "2026-10-22T15:10:53.735785+00:00",
+    "addons": [
+      {
+        "id": "zotero-ai-butler@github.com",
+        "version": "5.1.0",
+        "active": true
+      },
+      {
+        "id": "literatureflow@zotero.local",
+        "version": "0.3.4",
+        "active": true
+      }
+    ],
+    "productionProcessCount": 1,
+    "auto": true,
+    "paused": false,
+    "baselineItems": 1926,
+    "baselineExactlyPreserved": true,
+    "enabledAt": 1792678051797,
+    "tasks": 0,
+    "temporaryDriverRemoved": true,
+    "xpiHashVerified": true
+  }
+}

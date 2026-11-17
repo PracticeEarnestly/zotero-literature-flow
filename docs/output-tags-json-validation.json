@@ -1,0 +1,58 @@
+{
+  "version": "0.3.5",
+  "testsPassed": 66,
+  "xpiSHA256": "e6b36a075d2e72311f6b3bf04bc8957525d15b0a8f98a490b7914d36669367d6",
+  "recovery": {
+    "version": "0.3.5",
+    "recoveryButtonPresent": true,
+    "recovered": [
+      {
+        "stage": "L2",
+        "status": "completed",
+        "attempts": 1,
+        "modelAttemptsAdded": 0
+      }
+    ],
+    "baselinePreserved": true,
+    "totalAttemptsBefore": 2,
+    "totalAttemptsAfter": 2,
+    "at": "2026-10-22T21:19:16.337Z"
+  },
+  "history": {
+    "version": "0.3.5",
+    "existingNotesUnchanged": 1944,
+    "otherWorkflowNotesAdded": 1,
+    "recoveredNotesAdded": 1,
+    "oneNotePerRecoveredTask": true,
+    "rawResponsesUnchanged": true,
+    "baselinePreserved": true,
+    "baselineItems": 1926,
+    "originalButlerVersion": "5.1.0",
+    "originalButlerScan": false,
+    "originalButlerTasks": 0,
+    "at": "2026-10-22T21:21:16.035Z",
+    "temporaryDriverRemoved": true,
+    "queue": {
+      "completed": 2,
+      "waiting": 5
+    },
+    "auto": true,
+    "paused": false
+  },
+  "readback": {
+    "at": "2026-10-22T21:21:50.997064+00:00",
+    "version": "0.3.5",
+    "auto": true,
+    "paused": false,
+    "baselineItems": 1926,
+    "recoveredTaskCompleted": true,
+    "recoveredTaskAttempts": 1,
+    "queue": {
+      "completed": 2,
+      "running": 1,
+      "waiting": 4
+    },
+    "installedPackageHashesVerified": true,
+    "temporaryDriverRemoved": true
+  }
+}
